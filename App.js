@@ -61,7 +61,6 @@ const PROVIDERS = [
   }
 ];
 
-// --- THINKING INDICATOR ---
 const ThinkingIndicator = () => {
   const fadeAnim = useRef(new Animated.Value(0.3)).current;
   useEffect(() => {
@@ -81,7 +80,6 @@ const ThinkingIndicator = () => {
   );
 };
 
-// --- ELEGANT CODE BLOCK WITH 1-TAP COPY ---
 const CodeBlock = ({ code, language }) => {
   const [copied, setCopied] = useState(false);
 
@@ -222,8 +220,9 @@ export default function App() {
     }
 
     const attemptFetch = async (modelToUse) => {
-      let systemPrompt = `You are a knowledgeable AI assistant. Keep answers natural, detailed, and clear. Format any code snippets using triple backticks with the language name (e.g. \`\`\`javascript). Do not use markdown asterisks (**) in regular text.`;
-      if (userContext.trim() !== '') systemPrompt += ` Context: ${userContext}`;
+      // 🎭 UPDATED WITH HUMOR, BANTER & EMOJIS:
+      let systemPrompt = `You are Tessarc, a brilliant, witty, and charismatic AI assistant. You have a great sense of humor, playful banter, and use expressive emojis naturally in your replies to keep conversations fun and lively 😂✨. Be deeply helpful and smart, but never boring or robotic. When providing code, format it cleanly using triple backticks with the language name (e.g. \`\`\`javascript). Do not use markdown asterisks (**) in regular text.`;
+      if (userContext.trim() !== '') systemPrompt += ` User Context: ${userContext}`;
       
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
@@ -268,7 +267,6 @@ export default function App() {
     syncChatsWithStorage(list);
   };
 
-  // --- PARSER: SPLITS TEXT AND FORMATS CODE BLOCKS ---
   const renderMessageContent = (content) => {
     if (!content) return null;
     const parts = content.split(/(```[\s\S]*?```)/g);
@@ -484,7 +482,7 @@ const styles = StyleSheet.create({
   aiMsg: { alignSelf: 'flex-start', padding: 16, marginVertical: 8, maxWidth: '95%' },
   msgText: { color: '#FFF', fontSize: 16, lineHeight: 26 },
 
-  // --- STYLES FOR CODE BOX ---
+  // CODE BOX
   codeContainer: { backgroundColor: '#0D0D10', borderRadius: 14, borderWidth: 1, borderColor: '#222', marginVertical: 10, overflow: 'hidden' },
   codeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#151518', borderBottomWidth: 1, borderBottomColor: '#202025' },
   codeLang: { color: '#888', fontSize: 12, fontWeight: '700', textTransform: 'lowercase' },
