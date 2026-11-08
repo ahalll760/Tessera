@@ -6,7 +6,6 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// --- EXPANDED ELITE AI MODELS (CLAUDE 3.7, O3-MINI, DEEPSEEK R1) ---
 const PROVIDERS = [
   {
     id: 'openrouter',
@@ -27,7 +26,7 @@ const PROVIDERS = [
   },
   {
     id: 'anthropic',
-    name: 'Anthropic',
+    name: 'Anthropic (Direct)',
     models: [
       { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet (New)' },
       { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' }
@@ -116,7 +115,9 @@ export default function App() {
   const [selectedCompany, setSelectedCompany] = useState(null); 
   const [isModalVisible, setIsModalVisible] = useState(false); 
   
+  // Storage & State
   const [apiKey, setApiKey] = useState('');
+  const [anthropicKey, setAnthropicKey] = useState(''); // Direct Claude key
   const [userContext, setUserContext] = useState('');
   const [savedChats, setSavedChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
@@ -136,6 +137,9 @@ export default function App() {
         const storedKey = await AsyncStorage.getItem('@council_api_key_v1');
         if (storedKey) setApiKey(storedKey);
 
+        const storedAnthropic = await AsyncStorage.getItem('@council_anthropic_key_v1');
+        if (storedAnthropic) setAnthropicKey(storedAnthropic);
+
         const storedChats = await AsyncStorage.getItem('@council_chats_v1');
         if (storedChats) setSavedChats(JSON.parse(storedChats));
         
@@ -145,7 +149,7 @@ export default function App() {
         const hideNotice = await AsyncStorage.getItem('@council_hide_api_notice');
         if (hideNotice === 'true') {
           setDontShowAgain(true);
-        } else if (!storedKey) {
+        } else if (!storedKey && !storedAnthropic) {
           setShowNoticeModal(true);
         }
       } catch (err) { console.log(err); }
@@ -155,6 +159,11 @@ export default function App() {
   const handleApiKeyChange = async (key) => {
     setApiKey(key);
     try { await AsyncStorage.setItem('@council_api_key_v1', key.trim()); } catch (e) {}
+  };
+
+  const handleAnthropicKeyChange = async (key) => {
+    setAnthropicKey(key);
+    try { await AsyncStorage.setItem('@council_anthropic_key_v1', key.trim()); } catch (e) {}
   };
 
   const handleContextChange = async (text) => {
@@ -215,7 +224,17 @@ export default function App() {
     setInputText('');
     setIsLoading(true);
 
-    if (!apiKey.trim()) {
+    const isClaudeModel = selectedModel.id.includes('claude');
+
+    // Check if keys exist depending on the model chosen
+    if (isClaudeModel && !anthropicKey.trim() && !apiKey.trim()) {
+      setTimeout(() => {
+        setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Please add either an Anthropic Key or OpenRouter Key in Settings to use Claude.' }]);
+        setIsLoading(false);
+      }, 300);
+      return;
+    }
+    if (!isClaudeModel && !apiKey.trim()) {
       setTimeout(() => {
         setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Please add your OpenRouter API key in Settings (☰ > ⚙ Settings).' }]);
         setIsLoading(false);
@@ -223,23 +242,52 @@ export default function App() {
       return;
     }
 
-    const attemptFetch = async (modelToUse) => {
+    const attemptFetch = async () => {
       let systemPrompt = `You are Tessarc, a brilliant, witty, and charismatic AI assistant powered by ${selectedModel.name}. You have a great sense of humor, playful banter, and use expressive emojis naturally 😂✨. When providing code, format it cleanly using triple backticks with the language name (e.g. \`\`\`javascript). Do not use markdown asterisks (**) in regular text.`;
       if (userContext.trim() !== '') systemPrompt += ` User Context: ${userContext}`;
+
+      // ROUTE 1: DIRECT ANTHROPIC API (If using Claude and user supplied a native Anthropic key)
+      if (isClaudeModel && anthropicKey.trim()) {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": anthropicKey.trim(),
+            "anthropic-version": "2023-06-05",
+            "content-type": "application/json",
+            "anthropic-dangerous-direct-browser-access": "true" // Required for web browsers/Vercel
+          },
+          body: JSON.stringify({
+            model: selectedModel.id === 'anthropic/claude-3.7-sonnet' ? 'claude-3-7-sonnet-20250219' : 'claude-3-5-sonnet-20241022',
+            max_tokens: 4000,
+            system: systemPrompt,
+            messages: chatHistory.map(m => ({ role: m.role, content: m.content }))
+          })
+        });
+
+        const data = await response.json();
+        if (!response.ok || data.error) {
+          throw new Error(data?.error?.message || `Anthropic API Error: ${response.status}`);
+        }
+        return data.content[0].text;
+      } 
       
+      // ROUTE 2: OPENROUTER (For everything else, or fallback for Claude)
+      const targetKey = apiKey.trim() || anthropicKey.trim();
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { 
-          "Authorization": `Bearer ${apiKey.trim()}`, 
+          "Authorization": `Bearer ${targetKey}`, 
           "Content-Type": "application/json", 
           "HTTP-Referer": "https://expo.dev", 
           "X-Title": "Tessarc" 
         },
-        body: JSON.stringify({ model: modelToUse, messages: [{ role: "system", content: systemPrompt }, ...chatHistory] })
+        body: JSON.stringify({ 
+          model: selectedModel.id, 
+          messages: [{ role: "system", content: systemPrompt }, ...chatHistory] 
+        })
       });
       
       const data = await response.json().catch(() => ({}));
-
       if (!response.ok || data.error) {
         throw new Error(data?.error?.message || `API Error: ${response.status}`);
       }
@@ -247,16 +295,12 @@ export default function App() {
     };
 
     try {
-      const aiReply = await attemptFetch(selectedModel.id);
+      const aiReply = await attemptFetch();
       const finalHistory = [...chatHistory, { role: 'assistant', content: aiReply }];
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
-    } catch (primaryError) {
-      const errorMsg = primaryError.message.includes('402') || primaryError.message.toLowerCase().includes('credit')
-        ? `⚠️ ${selectedModel.name} requires OpenRouter credits. Please add credits at openrouter.ai/credits or select a Free model like "Auto-Router (Fast)".`
-        : `⚠️ ${selectedModel.name} Error: ${primaryError.message}`;
-
-      setMessages([...chatHistory, { role: 'assistant', content: errorMsg }]);
+    } catch (e) {
+      setMessages([...chatHistory, { role: 'assistant', content: `⚠️ Error: ${e.message || "Failed."}` }]);
     } finally {
       setIsLoading(false);
     }
@@ -272,29 +316,6 @@ export default function App() {
     syncChatsWithStorage(list);
   };
 
-  const renderMessageContent = (content) => {
-    if (!content) return null;
-    const parts = content.split(/(```[\s\S]*?```)/g);
-
-    return parts.map((part, index) => {
-      if (part.startsWith('```') && part.endsWith('```')) {
-        const firstLineBreak = part.indexOf('\n');
-        let lang = 'code';
-        let code = '';
-        if (firstLineBreak !== -1) {
-          lang = part.slice(3, firstLineBreak).trim() || 'code';
-          code = part.slice(firstLineBreak + 1, -3).trim();
-        } else {
-          code = part.slice(3, -3).trim();
-        }
-        return <CodeBlock key={index} code={code} language={lang} />;
-      }
-      const cleanText = part.replace(/\*\*/g, '');
-      if (!cleanText.trim()) return null;
-      return <Text key={index} style={styles.msgText}>{cleanText}</Text>;
-    });
-  };
-
   if (currentScreen === 'settings') {
     return (
       <SafeAreaView style={styles.container}>
@@ -305,15 +326,27 @@ export default function App() {
           <View style={{width: 30}} />
         </View>
         <ScrollView style={styles.settingsContent}>
-          <Text style={styles.sectionLabel}>OPENROUTER API KEY</Text>
+          
+          {/* OPENROUTER KEY */}
+          <Text style={styles.sectionLabel}>OPENROUTER API KEY (OPTIONAL)</Text>
+          <Text style={styles.helperText}>Used for GPT-4o, Gemini, DeepSeek, and Llama.</Text>
           <TextInput style={styles.keyInput} value={apiKey} onChangeText={handleApiKeyChange} placeholder="sk-or-v1-..." placeholderTextColor="#444" autoCapitalize="none" autoCorrect={false} />
-          <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.linkButtonText}>Get OpenRouter API Key ↗</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.linkButtonText}>Get OpenRouter Key ↗</Text></TouchableOpacity>
+
+          <View style={{height: 10}} />
+
+          {/* ANTHROPIC (CLAUDE) KEY */}
+          <Text style={styles.sectionLabel}>ANTHROPIC (CLAUDE) API KEY</Text>
+          <Text style={styles.helperText}>Direct native key for Claude 3.7 Sonnet.</Text>
+          <TextInput style={styles.keyInput} value={anthropicKey} onChangeText={handleAnthropicKeyChange} placeholder="sk-ant-..." placeholderTextColor="#444" autoCapitalize="none" autoCorrect={false} />
+          <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://console.anthropic.com/settings/keys')}><Text style={styles.linkButtonText}>Get Anthropic Claude Key ↗</Text></TouchableOpacity>
+
           <View style={styles.tutorialBox}>
             <Text style={styles.tutorialTitle}>Quick Guide:</Text>
-            <Text style={styles.tutorialStep}>1. Tap "Get OpenRouter API Key".</Text>
-            <Text style={styles.tutorialStep}>2. Sign up and click "Create Key".</Text>
-            <Text style={styles.tutorialStep}>3. Copy and paste it above.</Text>
+            <Text style={styles.tutorialStep}>• Use OpenRouter for all models (recommended).</Text>
+            <Text style={styles.tutorialStep}>• Or add a direct Anthropic key if you prefer native billing for Claude.</Text>
           </View>
+          
           <View style={{height: 20}} />
           <Text style={styles.sectionLabel}>CUSTOM INSTRUCTIONS</Text>
           <TextInput style={styles.contextInput} value={userContext} onChangeText={handleContextChange} multiline placeholder="e.g., Explain things simply..." placeholderTextColor="#444" />
@@ -332,13 +365,13 @@ export default function App() {
         <TouchableOpacity onPress={startNewChat}><Text style={styles.headerIcon}>＋</Text></TouchableOpacity>
       </View>
 
-      <Modal visible={showNoticeModal && !apiKey && !dontShowAgain} transparent animationType="fade">
+      <Modal visible={showNoticeModal && !apiKey && !anthropicKey && !dontShowAgain} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.noticeCard}>
             <Text style={styles.noticeHeader}>🔑 Setup Required</Text>
-            <Text style={styles.noticeBody}>To chat with models like GPT-4o, Claude, and Gemini, you need a free OpenRouter API key.</Text>
+            <Text style={styles.noticeBody}>To chat with models, please add an OpenRouter or Anthropic API key in Settings.</Text>
             <TouchableOpacity style={styles.noticeBtnPrimary} onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}><Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.noticeBtnSecondaryText}>Get Free Key ↗</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.noticeBtnSecondaryText}>Get OpenRouter Key ↗</Text></TouchableOpacity>
             <TouchableOpacity style={styles.checkboxContainer} onPress={toggleDontShowAgain}>
               <View style={[styles.checkboxBox, dontShowAgain && styles.checkboxChecked]}>{dontShowAgain && <Text style={styles.checkboxCheck}>✓</Text>}</View>
               <Text style={styles.checkboxLabel}>Don't show this again</Text>
