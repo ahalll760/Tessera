@@ -11,55 +11,52 @@ const PROVIDERS = [
     id: 'openrouter',
     name: 'OpenRouter (Free)',
     models: [
-      { id: 'openrouter/free', name: 'Auto-Router (Fast)' },
-      { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4' }
+      { id: 'openrouter/free', name: 'Auto-Router (Free)' },
+      { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4 (Free)' }
     ]
   },
   {
     id: 'openai',
-    name: 'OpenAI',
+    name: 'OpenAI (Paid)',
     models: [
-      { id: 'openai/o3-mini', name: 'OpenAI: o3-mini (Reasoning)' },
-      { id: 'openai/gpt-4o', name: 'OpenAI: GPT-4o' },
-      { id: 'openai/gpt-4o-mini', name: 'OpenAI: GPT-4o Mini' }
+      { id: 'openai/gpt-4o', name: 'GPT-4o (Paid)' },
+      { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini (Paid)' }
     ]
   },
   {
     id: 'anthropic',
-    name: 'Anthropic (Direct)',
+    name: 'Anthropic (Paid)',
     models: [
-      { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet (New)' },
-      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' }
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (Paid)' }
     ]
   },
   {
     id: 'google',
-    name: 'Google',
+    name: 'Google (Paid)',
     models: [
-      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
-      { id: 'google/gemini-1.5-flash', name: 'Gemini 1.5 Flash' }
+      { id: 'google/gemini-1.5-pro', name: 'Gemini 1.5 Pro (Paid)' },
+      { id: 'google/gemini-1.5-flash', name: 'Gemini 1.5 Flash (Paid)' }
     ]
   },
   {
     id: 'deepseek',
-    name: 'DeepSeek',
+    name: 'DeepSeek (Paid)',
     models: [
-      { id: 'deepseek/deepseek-r1', name: 'DeepSeek: R1 (Reasoning)' },
-      { id: 'deepseek/deepseek-chat', name: 'DeepSeek: V3' }
+      { id: 'deepseek/deepseek-chat', name: 'DeepSeek V3 (Paid)' }
     ]
   },
   {
     id: 'meta',
-    name: 'Meta',
+    name: 'Meta (Paid)',
     models: [
-      { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 (70B)' }
+      { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (Paid)' }
     ]
   },
   {
     id: 'alibaba',
-    name: 'Alibaba (Qwen)',
+    name: 'Alibaba (Paid)',
     models: [
-      { id: 'qwen/qwen-2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder' }
+      { id: 'qwen/qwen-2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder (Paid)' }
     ]
   }
 ];
@@ -83,41 +80,13 @@ const ThinkingIndicator = () => {
   );
 };
 
-const CodeBlock = ({ code, language }) => {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(code);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <View style={styles.codeContainer}>
-      <View style={styles.codeHeader}>
-        <Text style={styles.codeLang}>{language || 'code'}</Text>
-        <TouchableOpacity onPress={handleCopy} style={styles.copyBtn}>
-          <Text style={styles.copyBtnText}>{copied ? 'Copied ✓' : 'Copy'}</Text>
-        </TouchableOpacity>
-      </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
-        <Text style={styles.codeText}>{code}</Text>
-      </ScrollView>
-    </View>
-  );
-};
-
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('chat');
   const [showModels, setShowModels] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState(null); 
   const [isModalVisible, setIsModalVisible] = useState(false); 
   
-  // Storage & State
   const [apiKey, setApiKey] = useState('');
-  const [anthropicKey, setAnthropicKey] = useState(''); // Direct Claude key
   const [userContext, setUserContext] = useState('');
   const [savedChats, setSavedChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
@@ -137,9 +106,6 @@ export default function App() {
         const storedKey = await AsyncStorage.getItem('@council_api_key_v1');
         if (storedKey) setApiKey(storedKey);
 
-        const storedAnthropic = await AsyncStorage.getItem('@council_anthropic_key_v1');
-        if (storedAnthropic) setAnthropicKey(storedAnthropic);
-
         const storedChats = await AsyncStorage.getItem('@council_chats_v1');
         if (storedChats) setSavedChats(JSON.parse(storedChats));
         
@@ -149,7 +115,7 @@ export default function App() {
         const hideNotice = await AsyncStorage.getItem('@council_hide_api_notice');
         if (hideNotice === 'true') {
           setDontShowAgain(true);
-        } else if (!storedKey && !storedAnthropic) {
+        } else if (!storedKey) {
           setShowNoticeModal(true);
         }
       } catch (err) { console.log(err); }
@@ -159,11 +125,6 @@ export default function App() {
   const handleApiKeyChange = async (key) => {
     setApiKey(key);
     try { await AsyncStorage.setItem('@council_api_key_v1', key.trim()); } catch (e) {}
-  };
-
-  const handleAnthropicKeyChange = async (key) => {
-    setAnthropicKey(key);
-    try { await AsyncStorage.setItem('@council_anthropic_key_v1', key.trim()); } catch (e) {}
   };
 
   const handleContextChange = async (text) => {
@@ -215,6 +176,7 @@ export default function App() {
 
   const sendMessage = async () => {
     if (!inputText.trim()) return;
+    
     const currentId = activeChatId || Date.now().toString();
     if (!activeChatId) setActiveChatId(currentId);
     
@@ -224,83 +186,55 @@ export default function App() {
     setInputText('');
     setIsLoading(true);
 
-    const isClaudeModel = selectedModel.id.includes('claude');
-
-    // Check if keys exist depending on the model chosen
-    if (isClaudeModel && !anthropicKey.trim() && !apiKey.trim()) {
+    if (!apiKey.trim()) {
       setTimeout(() => {
-        setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Please add either an Anthropic Key or OpenRouter Key in Settings to use Claude.' }]);
-        setIsLoading(false);
-      }, 300);
-      return;
-    }
-    if (!isClaudeModel && !apiKey.trim()) {
-      setTimeout(() => {
-        setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Please add your OpenRouter API key in Settings (☰ > ⚙ Settings).' }]);
+        setMessages([...chatHistory, { 
+          role: 'assistant', 
+          content: '⚠️ Please add your OpenRouter API key in Settings (☰ > ⚙ Settings) to begin.' 
+        }]);
         setIsLoading(false);
       }, 300);
       return;
     }
 
-    const attemptFetch = async () => {
-      let systemPrompt = `You are Tessarc, a brilliant, witty, and charismatic AI assistant powered by ${selectedModel.name}. You have a great sense of humor, playful banter, and use expressive emojis naturally 😂✨. When providing code, format it cleanly using triple backticks with the language name (e.g. \`\`\`javascript). Do not use markdown asterisks (**) in regular text.`;
-      if (userContext.trim() !== '') systemPrompt += ` User Context: ${userContext}`;
-
-      // ROUTE 1: DIRECT ANTHROPIC API (If using Claude and user supplied a native Anthropic key)
-      if (isClaudeModel && anthropicKey.trim()) {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "x-api-key": anthropicKey.trim(),
-            "anthropic-version": "2023-06-05",
-            "content-type": "application/json",
-            "anthropic-dangerous-direct-browser-access": "true" // Required for web browsers/Vercel
-          },
-          body: JSON.stringify({
-            model: selectedModel.id === 'anthropic/claude-3.7-sonnet' ? 'claude-3-7-sonnet-20250219' : 'claude-3-5-sonnet-20241022',
-            max_tokens: 4000,
-            system: systemPrompt,
-            messages: chatHistory.map(m => ({ role: m.role, content: m.content }))
-          })
-        });
-
-        const data = await response.json();
-        if (!response.ok || data.error) {
-          throw new Error(data?.error?.message || `Anthropic API Error: ${response.status}`);
-        }
-        return data.content[0].text;
-      } 
+    const attemptFetch = async (modelToUse) => {
+      let systemPrompt = `You are a knowledgeable, articulate, and conversational AI assistant. Provide detailed, engaging, and well-explained answers. Reply in plain text only without markdown asterisks (**).`;
+      if (userContext.trim() !== '') systemPrompt += ` Context: ${userContext}`;
       
-      // ROUTE 2: OPENROUTER (For everything else, or fallback for Claude)
-      const targetKey = apiKey.trim() || anthropicKey.trim();
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { 
-          "Authorization": `Bearer ${targetKey}`, 
+          "Authorization": `Bearer ${apiKey.trim()}`, 
           "Content-Type": "application/json", 
           "HTTP-Referer": "https://expo.dev", 
-          "X-Title": "Tessarc" 
+          "X-Title": "Minimal AI" 
         },
-        body: JSON.stringify({ 
-          model: selectedModel.id, 
-          messages: [{ role: "system", content: systemPrompt }, ...chatHistory] 
-        })
+        body: JSON.stringify({ model: modelToUse, messages: [{ role: "system", content: systemPrompt }, ...chatHistory] })
       });
       
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.error) {
-        throw new Error(data?.error?.message || `API Error: ${response.status}`);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || `API Error: ${response.status}`);
       }
+      
+      const data = await response.json();
       return data.choices[0].message.content;
     };
 
     try {
-      const aiReply = await attemptFetch();
+      const aiReply = await attemptFetch(selectedModel.id);
       const finalHistory = [...chatHistory, { role: 'assistant', content: aiReply }];
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
     } catch (e) {
-      setMessages([...chatHistory, { role: 'assistant', content: `⚠️ Error: ${e.message || "Failed."}` }]);
+      try {
+        const fallback = await attemptFetch('openrouter/free');
+        const finalHistory = [...chatHistory, { role: 'assistant', content: fallback }];
+        setMessages(finalHistory);
+        saveSessionToHistory(currentId, finalHistory);
+      } catch (err) {
+        setMessages([...chatHistory, { role: 'assistant', content: `Error: ${e.message || "Connection failed. If using a Paid model, check your OpenRouter credit balance."}` }]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -325,31 +259,45 @@ export default function App() {
           <Text style={styles.headerTitle}>Settings</Text>
           <View style={{width: 30}} />
         </View>
+
         <ScrollView style={styles.settingsContent}>
+          <Text style={styles.sectionLabel}>OPENROUTER API KEY</Text>
+          <Text style={styles.helperText}>Required to query models. Stored safely on your device.</Text>
           
-          {/* OPENROUTER KEY */}
-          <Text style={styles.sectionLabel}>OPENROUTER API KEY (OPTIONAL)</Text>
-          <Text style={styles.helperText}>Used for GPT-4o, Gemini, DeepSeek, and Llama.</Text>
-          <TextInput style={styles.keyInput} value={apiKey} onChangeText={handleApiKeyChange} placeholder="sk-or-v1-..." placeholderTextColor="#444" autoCapitalize="none" autoCorrect={false} />
-          <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.linkButtonText}>Get OpenRouter Key ↗</Text></TouchableOpacity>
+          <TextInput 
+            style={styles.keyInput} 
+            value={apiKey} 
+            onChangeText={handleApiKeyChange} 
+            placeholder="sk-or-v1-..." 
+            placeholderTextColor="#444" 
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
 
-          <View style={{height: 10}} />
-
-          {/* ANTHROPIC (CLAUDE) KEY */}
-          <Text style={styles.sectionLabel}>ANTHROPIC (CLAUDE) API KEY</Text>
-          <Text style={styles.helperText}>Direct native key for Claude 3.7 Sonnet.</Text>
-          <TextInput style={styles.keyInput} value={anthropicKey} onChangeText={handleAnthropicKeyChange} placeholder="sk-ant-..." placeholderTextColor="#444" autoCapitalize="none" autoCorrect={false} />
-          <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://console.anthropic.com/settings/keys')}><Text style={styles.linkButtonText}>Get Anthropic Claude Key ↗</Text></TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.linkButton} 
+            onPress={() => Linking.openURL('https://openrouter.ai/keys')}
+          >
+            <Text style={styles.linkButtonText}>Get OpenRouter API Key ↗</Text>
+          </TouchableOpacity>
 
           <View style={styles.tutorialBox}>
-            <Text style={styles.tutorialTitle}>Quick Guide:</Text>
-            <Text style={styles.tutorialStep}>• Use OpenRouter for all models (recommended).</Text>
-            <Text style={styles.tutorialStep}>• Or add a direct Anthropic key if you prefer native billing for Claude.</Text>
+            <Text style={styles.tutorialTitle}>Note on Paid Models:</Text>
+            <Text style={styles.tutorialStep}>• Models marked <Text style={{color: '#4A90E2', fontWeight: '700'}}>(Paid)</Text> like Claude or GPT-4o require a positive credit balance on your OpenRouter account.</Text>
+            <Text style={styles.tutorialStep}>• Models marked <Text style={{color: '#7ED321', fontWeight: '700'}}>(Free)</Text> require $0.</Text>
           </View>
-          
-          <View style={{height: 20}} />
+
+          <View style={styles.settingsSpacer} />
+
           <Text style={styles.sectionLabel}>CUSTOM INSTRUCTIONS</Text>
-          <TextInput style={styles.contextInput} value={userContext} onChangeText={handleContextChange} multiline placeholder="e.g., Explain things simply..." placeholderTextColor="#444" />
+          <TextInput 
+            style={styles.contextInput} 
+            value={userContext} 
+            onChangeText={handleContextChange} 
+            multiline 
+            placeholder="e.g., Explain things simply..." 
+            placeholderTextColor="#444" 
+          />
           <View style={{height: 60}} />
         </ScrollView>
       </SafeAreaView>
@@ -359,24 +307,55 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
+      
       <View style={styles.header}>
         <TouchableOpacity onPress={openMenu}><Text style={styles.headerIcon}>☰</Text></TouchableOpacity>
-        <TouchableOpacity onPress={() => { setSelectedCompany(null); setShowModels(!showModels); }} style={styles.modelBtn}><Text style={styles.modelBtnText} numberOfLines={1}>{selectedModel.name} ▾</Text></TouchableOpacity>
+        
+        <TouchableOpacity 
+          onPress={() => {
+            setSelectedCompany(null);
+            setShowModels(!showModels);
+          }} 
+          style={styles.modelBtn}
+        >
+          <Text style={styles.modelBtnText} numberOfLines={1}>{selectedModel.name} ▾</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity onPress={startNewChat}><Text style={styles.headerIcon}>＋</Text></TouchableOpacity>
       </View>
 
-      <Modal visible={showNoticeModal && !apiKey && !anthropicKey && !dontShowAgain} transparent animationType="fade">
+      <Modal visible={showNoticeModal && !apiKey && !dontShowAgain} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.noticeCard}>
             <Text style={styles.noticeHeader}>🔑 Setup Required</Text>
-            <Text style={styles.noticeBody}>To chat with models, please add an OpenRouter or Anthropic API key in Settings.</Text>
-            <TouchableOpacity style={styles.noticeBtnPrimary} onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}><Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.noticeBtnSecondaryText}>Get OpenRouter Key ↗</Text></TouchableOpacity>
+            <Text style={styles.noticeBody}>
+              To chat with models, please add your free OpenRouter API key in Settings.
+            </Text>
+
+            <TouchableOpacity 
+              style={styles.noticeBtnPrimary} 
+              onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}
+            >
+              <Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.noticeBtnSecondary} 
+              onPress={() => Linking.openURL('https://openrouter.ai/keys')}
+            >
+              <Text style={styles.noticeBtnSecondaryText}>Get Free Key ↗</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.checkboxContainer} onPress={toggleDontShowAgain}>
-              <View style={[styles.checkboxBox, dontShowAgain && styles.checkboxChecked]}>{dontShowAgain && <Text style={styles.checkboxCheck}>✓</Text>}</View>
+              <View style={[styles.checkboxBox, dontShowAgain && styles.checkboxChecked]}>
+                {dontShowAgain && <Text style={styles.checkboxCheck}>✓</Text>}
+              </View>
               <Text style={styles.checkboxLabel}>Don't show this again</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.noticeDismiss} onPress={() => setShowNoticeModal(false)}><Text style={styles.noticeDismissText}>Dismiss</Text></TouchableOpacity>
+
+            <TouchableOpacity style={styles.noticeDismiss} onPress={() => setShowNoticeModal(false)}>
+              <Text style={styles.noticeDismissText}>Dismiss</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -385,11 +364,21 @@ export default function App() {
         <View style={styles.modelDropdown}>
           {!selectedCompany ? (
             <View>
-              <View style={styles.dropdownHeader}><Text style={styles.dropdownHeaderTitle}>Select Provider</Text><TouchableOpacity onPress={() => setShowModels(false)}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity></View>
+              <View style={styles.dropdownHeader}>
+                <Text style={styles.dropdownHeaderTitle}>Select Provider</Text>
+                <TouchableOpacity onPress={() => setShowModels(false)}>
+                  <Text style={styles.dropdownCloseBtn}>✕</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false}>
                 {PROVIDERS.map((provider) => (
-                  <TouchableOpacity key={provider.id} style={styles.providerRow} onPress={() => setSelectedCompany(provider)}>
-                    <Text style={styles.providerRowText}>{provider.name}</Text><Text style={styles.providerChevron}>›</Text>
+                  <TouchableOpacity 
+                    key={provider.id} 
+                    style={styles.providerRow}
+                    onPress={() => setSelectedCompany(provider)}
+                  >
+                    <Text style={styles.providerRowText}>{provider.name}</Text>
+                    <Text style={styles.providerChevron}>›</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -397,15 +386,30 @@ export default function App() {
           ) : (
             <View>
               <View style={styles.dropdownHeader}>
-                <TouchableOpacity onPress={() => setSelectedCompany(null)} style={styles.backRow}><Text style={styles.backArrow}>‹</Text><Text style={styles.dropdownHeaderTitle}>{selectedCompany.name}</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => { setSelectedCompany(null); setShowModels(false); }}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => setSelectedCompany(null)} style={styles.backRow}>
+                  <Text style={styles.backArrow}>‹</Text>
+                  <Text style={styles.dropdownHeaderTitle}>{selectedCompany.name}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => { setSelectedCompany(null); setShowModels(false); }}>
+                  <Text style={styles.dropdownCloseBtn}>✕</Text>
+                </TouchableOpacity>
               </View>
               <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false}>
                 {selectedCompany.models.map((m) => {
                   const isSelected = selectedModel.id === m.id;
                   return (
-                    <TouchableOpacity key={m.id} style={[styles.modelRow, isSelected && styles.selectedModelRow]} onPress={() => { setSelectedModel(m); setSelectedCompany(null); setShowModels(false); }}>
-                      <Text style={[styles.modelRowText, isSelected && styles.selectedModelRowText]}>{m.name}</Text>
+                    <TouchableOpacity 
+                      key={m.id} 
+                      style={[styles.modelRow, isSelected && styles.selectedModelRow]}
+                      onPress={() => {
+                        setSelectedModel(m);
+                        setSelectedCompany(null);
+                        setShowModels(false);
+                      }}
+                    >
+                      <Text style={[styles.modelRowText, isSelected && styles.selectedModelRowText]}>
+                        {m.name}
+                      </Text>
                       {isSelected && <Text style={styles.checkmark}>✓</Text>}
                     </TouchableOpacity>
                   );
@@ -420,16 +424,22 @@ export default function App() {
         <View style={styles.menuOverlay}>
           <Animated.View style={[styles.menuContent, { transform: [{ translateX: slideAnim }] }]}>
             <TouchableOpacity style={styles.newChatBtn} onPress={startNewChat}><Text style={styles.newChatBtnText}>＋ New Chat</Text></TouchableOpacity>
+            
             <Text style={styles.historyHeading}>RECENTS</Text>
             <ScrollView style={styles.chatListScroll} showsVerticalScrollIndicator={false}>
               {savedChats.length === 0 ? <Text style={styles.emptyHistoryText}>No chats yet.</Text> : savedChats.map(c => (
                 <TouchableOpacity key={c.id} style={[styles.historyItem, activeChatId === c.id && styles.activeHistoryItem]} onPress={() => selectChat(c)}>
                   <Text style={[styles.historyItemText, activeChatId === c.id && styles.activeHistoryItemText]} numberOfLines={1}>{c.title}</Text>
-                  <TouchableOpacity onPress={(e) => deleteChat(c.id, e)}><Text style={styles.deleteBtnText}>✕</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={(e) => deleteChat(c.id, e)} style={styles.deleteBtn}><Text style={styles.deleteBtnText}>✕</Text></TouchableOpacity>
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <View style={styles.menuFooter}><TouchableOpacity style={styles.settingsRow} onPress={() => { closeMenu(); setCurrentScreen('settings'); }}><Text style={styles.settingsRowText}>⚙ Settings</Text></TouchableOpacity></View>
+
+            <View style={styles.menuFooter}>
+              <TouchableOpacity style={styles.settingsRow} onPress={() => { closeMenu(); setCurrentScreen('settings'); }}>
+                <Text style={styles.settingsRowText}>⚙ Settings</Text>
+              </TouchableOpacity>
+            </View>
           </Animated.View>
           <Pressable style={styles.menuCloseArea} onPress={closeMenu} />
         </View>
@@ -440,7 +450,16 @@ export default function App() {
           key="chat-list"
           data={isLoading ? [...messages, { role: 'thinking' }] : messages}
           keyExtractor={(_, i) => i.toString()}
-          renderItem={({ item }) => item.role === 'thinking' ? <ThinkingIndicator /> : <View style={item.role === 'user' ? styles.userMsg : styles.aiMsg}>{renderMessageContent(item.content)}</View>}
+          renderItem={({ item }) => {
+            if (item.role === 'thinking') {
+              return <ThinkingIndicator />;
+            }
+            return (
+              <View style={item.role === 'user' ? styles.userMsg : styles.aiMsg}>
+                <Text style={styles.msgText}>{item.content.replace(/\*\*/g, '')}</Text>
+              </View>
+            );
+          }}
           contentContainerStyle={{ padding: 20, flexGrow: 1, justifyContent: 'flex-end' }}
           ListEmptyComponent={() => <View style={styles.emptyChat}><Text style={styles.emptyLogo}>✧</Text><Text style={styles.emptyChatText}>How can I help?</Text></View>}
         />
@@ -517,15 +536,8 @@ const styles = StyleSheet.create({
   emptyLogo: { fontSize: 40, color: '#333' },
   emptyChatText: { color: '#555', fontSize: 18 },
   userMsg: { alignSelf: 'flex-end', backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, marginVertical: 8, maxWidth: '85%' },
-  aiMsg: { alignSelf: 'flex-start', padding: 16, marginVertical: 8, maxWidth: '95%' },
+  aiMsg: { alignSelf: 'flex-start', padding: 16, marginVertical: 8, maxWidth: '90%' },
   msgText: { color: '#FFF', fontSize: 16, lineHeight: 26 },
-  codeContainer: { backgroundColor: '#0D0D10', borderRadius: 14, borderWidth: 1, borderColor: '#222', marginVertical: 10, overflow: 'hidden' },
-  codeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#151518', borderBottomWidth: 1, borderBottomColor: '#202025' },
-  codeLang: { color: '#888', fontSize: 12, fontWeight: '700', textTransform: 'lowercase' },
-  copyBtn: { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6, backgroundColor: '#202026' },
-  copyBtnText: { color: '#CCC', fontSize: 12, fontWeight: '600' },
-  codeScroll: { padding: 14 },
-  codeText: { color: '#E0E0E0', fontSize: 14, lineHeight: 22, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
   inputContainer: { flexDirection: 'row', padding: 15, paddingBottom: 20, backgroundColor: '#000', borderTopWidth: 1, borderTopColor: '#111' },
   input: { flex: 1, backgroundColor: '#1A1A1A', color: '#FFF', paddingHorizontal: 20, paddingVertical: 15, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#222' },
   sendBtn: { marginLeft: 10, backgroundColor: '#FFF', width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
