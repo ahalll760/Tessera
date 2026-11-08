@@ -220,38 +220,41 @@ export default function App() {
     }
 
     const attemptFetch = async (modelToUse) => {
-      // 🎭 UPDATED WITH HUMOR, BANTER & EMOJIS:
-      let systemPrompt = `You are Tessarc, a brilliant, witty, and charismatic AI assistant. You have a great sense of humor, playful banter, and use expressive emojis naturally in your replies to keep conversations fun and lively 😂✨. Be deeply helpful and smart, but never boring or robotic. When providing code, format it cleanly using triple backticks with the language name (e.g. \`\`\`javascript). Do not use markdown asterisks (**) in regular text.`;
+      let systemPrompt = `You are Tessarc, a brilliant, witty, and charismatic AI assistant powered by ${selectedModel.name}. You have a great sense of humor, playful banter, and use expressive emojis naturally 😂✨. When providing code, format it cleanly using triple backticks with the language name (e.g. \`\`\`javascript). Do not use markdown asterisks (**) in regular text.`;
       if (userContext.trim() !== '') systemPrompt += ` User Context: ${userContext}`;
       
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${apiKey.trim()}`, "Content-Type": "application/json", "HTTP-Referer": "https://expo.dev", "X-Title": "Tessarc" },
+        headers: { 
+          "Authorization": `Bearer ${apiKey.trim()}`, 
+          "Content-Type": "application/json", 
+          "HTTP-Referer": "https://expo.dev", 
+          "X-Title": "Tessarc" 
+        },
         body: JSON.stringify({ model: modelToUse, messages: [{ role: "system", content: systemPrompt }, ...chatHistory] })
       });
       
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData?.error?.message || `API Error: ${response.status}`);
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data.error) {
+        throw new Error(data?.error?.message || `API Error: ${response.status}`);
       }
-      const data = await response.json();
       return data.choices[0].message.content;
     };
 
     try {
+      // Direct call - NO SILENT FALLBACK
       const aiReply = await attemptFetch(selectedModel.id);
       const finalHistory = [...chatHistory, { role: 'assistant', content: aiReply }];
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
-    } catch (e) {
-      try {
-        const fallback = await attemptFetch('openrouter/free');
-        const finalHistory = [...chatHistory, { role: 'assistant', content: fallback }];
-        setMessages(finalHistory);
-        saveSessionToHistory(currentId, finalHistory);
-      } catch (err) {
-        setMessages([...chatHistory, { role: 'assistant', content: `Error: ${e.message || "Failed."}` }]);
-      }
+    } catch (primaryError) {
+      // TRANSPARENT ERROR: Tell the user exactly why it failed instead of hiding it!
+      const errorMsg = primaryError.message.includes('402') || primaryError.message.toLowerCase().includes('credit')
+        ? `⚠️ ${selectedModel.name} requires OpenRouter credits. Please add credits at openrouter.ai/credits or select a Free model like "Auto-Router (Fast)".`
+        : `⚠️ ${selectedModel.name} Error: ${primaryError.message}`;
+
+      setMessages([...chatHistory, { role: 'assistant', content: errorMsg }]);
     } finally {
       setIsLoading(false);
     }
@@ -481,8 +484,6 @@ const styles = StyleSheet.create({
   userMsg: { alignSelf: 'flex-end', backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, marginVertical: 8, maxWidth: '85%' },
   aiMsg: { alignSelf: 'flex-start', padding: 16, marginVertical: 8, maxWidth: '95%' },
   msgText: { color: '#FFF', fontSize: 16, lineHeight: 26 },
-
-  // CODE BOX
   codeContainer: { backgroundColor: '#0D0D10', borderRadius: 14, borderWidth: 1, borderColor: '#222', marginVertical: 10, overflow: 'hidden' },
   codeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#151518', borderBottomWidth: 1, borderBottomColor: '#202025' },
   codeLang: { color: '#888', fontSize: 12, fontWeight: '700', textTransform: 'lowercase' },
@@ -490,7 +491,6 @@ const styles = StyleSheet.create({
   copyBtnText: { color: '#CCC', fontSize: 12, fontWeight: '600' },
   codeScroll: { padding: 14 },
   codeText: { color: '#E0E0E0', fontSize: 14, lineHeight: 22, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-
   inputContainer: { flexDirection: 'row', padding: 15, paddingBottom: 20, backgroundColor: '#000', borderTopWidth: 1, borderTopColor: '#111' },
   input: { flex: 1, backgroundColor: '#1A1A1A', color: '#FFF', paddingHorizontal: 20, paddingVertical: 15, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#222' },
   sendBtn: { marginLeft: 10, backgroundColor: '#FFF', width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
