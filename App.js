@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TextInput, TouchableOpacity, 
   FlatList, SafeAreaView, KeyboardAvoidingView, Platform, 
-  StatusBar, Modal, Pressable, Animated, ScrollView, Linking
+  ActivityIndicator, StatusBar, Modal, Pressable, Animated, ScrollView,
+  Linking
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -11,7 +12,7 @@ const PROVIDERS = [
     id: 'openrouter',
     name: 'OpenRouter (Free)',
     models: [
-      { id: 'openrouter/free', name: 'Auto-Router (Free)' },
+      { id: 'openrouter/free', name: 'Auto-Router (Fast)' },
       { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4 (Free)' }
     ]
   },
@@ -87,6 +88,7 @@ export default function App() {
   const [isModalVisible, setIsModalVisible] = useState(false); 
   
   const [apiKey, setApiKey] = useState('');
+  const [backupKey, setBackupKey] = useState(''); // Groq Backup Key
   const [userContext, setUserContext] = useState('');
   const [savedChats, setSavedChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
@@ -94,9 +96,6 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState(PROVIDERS[0].models[0]); 
-
-  const [showNoticeModal, setShowNoticeModal] = useState(false);
-  const [dontShowAgain, setDontShowAgain] = useState(false);
 
   const slideAnim = useRef(new Animated.Value(-350)).current; 
 
@@ -106,19 +105,15 @@ export default function App() {
         const storedKey = await AsyncStorage.getItem('@council_api_key_v1');
         if (storedKey) setApiKey(storedKey);
 
+        const storedBackup = await AsyncStorage.getItem('@council_backup_key_v1');
+        if (storedBackup) setBackupKey(storedBackup);
+
         const storedChats = await AsyncStorage.getItem('@council_chats_v1');
         if (storedChats) setSavedChats(JSON.parse(storedChats));
         
         const storedContext = await AsyncStorage.getItem('@council_context_v1');
         if (storedContext) setUserContext(storedContext);
-
-        const hideNotice = await AsyncStorage.getItem('@council_hide_api_notice');
-        if (hideNotice === 'true') {
-          setDontShowAgain(true);
-        } else if (!storedKey) {
-          setShowNoticeModal(true);
-        }
-      } catch (err) { console.log(err); }
+      } catch (err) { console.log('Storage error:', err); }
     })();
   }, []);
 
@@ -127,17 +122,14 @@ export default function App() {
     try { await AsyncStorage.setItem('@council_api_key_v1', key.trim()); } catch (e) {}
   };
 
+  const handleBackupKeyChange = async (key) => {
+    setBackupKey(key);
+    try { await AsyncStorage.setItem('@council_backup_key_v1', key.trim()); } catch (e) {}
+  };
+
   const handleContextChange = async (text) => {
     setUserContext(text);
     try { await AsyncStorage.setItem('@council_context_v1', text); } catch (e) {}
-  };
-
-  const toggleDontShowAgain = async () => {
-    const nextVal = !dontShowAgain;
-    setDontShowAgain(nextVal);
-    try {
-      await AsyncStorage.setItem('@council_hide_api_notice', nextVal ? 'true' : 'false');
-    } catch (e) {}
   };
 
   const syncChatsWithStorage = async (updatedList) => {
@@ -186,58 +178,65 @@ export default function App() {
     setInputText('');
     setIsLoading(true);
 
-    if (!apiKey.trim()) {
+    if (!apiKey.trim() && !backupKey.trim()) {
       setTimeout(() => {
         setMessages([...chatHistory, { 
           role: 'assistant', 
-          content: '⚠️ Please add your OpenRouter API key in Settings (☰ > ⚙ Settings) to begin.' 
+          content: '⚠️ Please add an OpenRouter API key or a Groq Backup key in Settings to begin.' 
         }]);
         setIsLoading(false);
       }, 300);
       return;
     }
 
-    const attemptFetch = async (modelToUse) => {
-      let systemPrompt = `You are a knowledgeable, articulate, and conversational AI assistant. Provide detailed, engaging, and well-explained answers. Reply in plain text only without markdown asterisks (**).`;
-      if (userContext.trim() !== '') systemPrompt += ` Context: ${userContext}`;
+    let systemPrompt = `You are a knowledgeable, articulate, and conversational AI assistant. Provide detailed, engaging, and well-explained answers. Reply in plain text only without markdown asterisks (**).`;
+    if (userContext.trim() !== '') systemPrompt += ` Context: ${userContext}`;
+
+    // --- ATTEMPT 1: MAIN OPENROUTER API ---
+    let aiReply = null;
+    try {
+      if (!apiKey.trim()) throw new Error("No primary key");
       
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
-        headers: { 
-          "Authorization": `Bearer ${apiKey.trim()}`, 
-          "Content-Type": "application/json", 
-          "HTTP-Referer": "https://expo.dev", 
-          "X-Title": "Minimal AI" 
-        },
-        body: JSON.stringify({ model: modelToUse, messages: [{ role: "system", content: systemPrompt }, ...chatHistory] })
+        headers: { "Authorization": `Bearer ${apiKey.trim()}`, "Content-Type": "application/json", "HTTP-Referer": "https://expo.dev", "X-Title": "Minimal AI" },
+        body: JSON.stringify({ model: selectedModel.id, messages: [{ role: "system", content: systemPrompt }, ...chatHistory] })
       });
       
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData?.error?.message || `API Error: ${response.status}`);
-      }
-      
+      if (!response.ok) throw new Error("OpenRouter failed");
       const data = await response.json();
-      return data.choices[0].message.content;
-    };
+      aiReply = data.choices[0].message.content;
+    } catch (primaryErr) {
+      // --- ATTEMPT 2: AUTOMATIC FAILOVER TO GROQ BACKUP ---
+      try {
+        if (!backupKey.trim()) throw new Error("No backup key available");
+        
+        // Groq uses an OpenAI-compatible endpoint structure
+        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${backupKey.trim()}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            model: "llama-3.3-70b-versatile", // Reliable fast backup model on Groq
+            messages: [{ role: "system", content: systemPrompt }, ...chatHistory] 
+          })
+        });
 
-    try {
-      const aiReply = await attemptFetch(selectedModel.id);
+        if (!response.ok) throw new Error("Groq backup failed");
+        const data = await response.json();
+        aiReply = `[Switched to Groq Backup] \n\n` + data.choices[0].message.content;
+      } catch (backupErr) {
+        setMessages([...chatHistory, { role: 'assistant', content: '❌ Error: Both primary (OpenRouter) and backup (Groq) keys failed or are missing credits.' }]);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    if (aiReply) {
       const finalHistory = [...chatHistory, { role: 'assistant', content: aiReply }];
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
-    } catch (e) {
-      try {
-        const fallback = await attemptFetch('openrouter/free');
-        const finalHistory = [...chatHistory, { role: 'assistant', content: fallback }];
-        setMessages(finalHistory);
-        saveSessionToHistory(currentId, finalHistory);
-      } catch (err) {
-        setMessages([...chatHistory, { role: 'assistant', content: `Error: ${e.message || "Connection failed. If using a Paid model, check your OpenRouter credit balance."}` }]);
-      }
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   };
 
   const saveSessionToHistory = (chatId, updatedMessages) => {
@@ -250,6 +249,7 @@ export default function App() {
     syncChatsWithStorage(list);
   };
 
+  // --- SETTINGS SCREEN WITH BACKUP CONFIG ---
   if (currentScreen === 'settings') {
     return (
       <SafeAreaView style={styles.container}>
@@ -261,9 +261,8 @@ export default function App() {
         </View>
 
         <ScrollView style={styles.settingsContent}>
-          <Text style={styles.sectionLabel}>OPENROUTER API KEY</Text>
-          <Text style={styles.helperText}>Required to query models. Stored safely on your device.</Text>
-          
+          {/* PRIMARY KEY */}
+          <Text style={styles.sectionLabel}>PRIMARY: OPENROUTER API KEY</Text>
           <TextInput 
             style={styles.keyInput} 
             value={apiKey} 
@@ -273,18 +272,32 @@ export default function App() {
             autoCapitalize="none"
             autoCorrect={false}
           />
+          <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://openrouter.ai/keys')}>
+            <Text style={styles.linkButtonText}>Get OpenRouter Key ↗</Text>
+          </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.linkButton} 
-            onPress={() => Linking.openURL('https://openrouter.ai/keys')}
-          >
-            <Text style={styles.linkButtonText}>Get OpenRouter API Key ↗</Text>
+          <View style={{height: 15}} />
+
+          {/* BACKUP KEY */}
+          <Text style={styles.sectionLabel}>BACKUP: GROQ API KEY (FAILOVER)</Text>
+          <Text style={styles.helperText}>If OpenRouter hits a limit or goes down, your requests automatically route through Groq.</Text>
+          <TextInput 
+            style={styles.keyInput} 
+            value={backupKey} 
+            onChangeText={handleBackupKeyChange} 
+            placeholder="gsk_..." 
+            placeholderTextColor="#444" 
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://console.groq.com/keys')}>
+            <Text style={styles.linkButtonText}>Get Free Groq Backup Key ↗</Text>
           </TouchableOpacity>
 
           <View style={styles.tutorialBox}>
-            <Text style={styles.tutorialTitle}>Note on Paid Models:</Text>
-            <Text style={styles.tutorialStep}>• Models marked <Text style={{color: '#4A90E2', fontWeight: '700'}}>(Paid)</Text> like Claude or GPT-4o require a positive credit balance on your OpenRouter account.</Text>
-            <Text style={styles.tutorialStep}>• Models marked <Text style={{color: '#7ED321', fontWeight: '700'}}>(Free)</Text> require $0.</Text>
+            <Text style={styles.tutorialTitle}>How Failover Works:</Text>
+            <Text style={styles.tutorialStep}>• Groq provides ultra-fast open-source model inference.</Text>
+            <Text style={styles.tutorialStep}>• If your primary key fails, the app instantly switches rails to keep your chat alive.</Text>
           </View>
 
           <View style={styles.settingsSpacer} />
@@ -323,42 +336,6 @@ export default function App() {
 
         <TouchableOpacity onPress={startNewChat}><Text style={styles.headerIcon}>＋</Text></TouchableOpacity>
       </View>
-
-      <Modal visible={showNoticeModal && !apiKey && !dontShowAgain} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.noticeCard}>
-            <Text style={styles.noticeHeader}>🔑 Setup Required</Text>
-            <Text style={styles.noticeBody}>
-              To chat with models, please add your free OpenRouter API key in Settings.
-            </Text>
-
-            <TouchableOpacity 
-              style={styles.noticeBtnPrimary} 
-              onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}
-            >
-              <Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.noticeBtnSecondary} 
-              onPress={() => Linking.openURL('https://openrouter.ai/keys')}
-            >
-              <Text style={styles.noticeBtnSecondaryText}>Get Free Key ↗</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.checkboxContainer} onPress={toggleDontShowAgain}>
-              <View style={[styles.checkboxBox, dontShowAgain && styles.checkboxChecked]}>
-                {dontShowAgain && <Text style={styles.checkboxCheck}>✓</Text>}
-              </View>
-              <Text style={styles.checkboxLabel}>Don't show this again</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.noticeDismiss} onPress={() => setShowNoticeModal(false)}>
-              <Text style={styles.noticeDismissText}>Dismiss</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {showModels && (
         <View style={styles.modelDropdown}>
@@ -450,16 +427,7 @@ export default function App() {
           key="chat-list"
           data={isLoading ? [...messages, { role: 'thinking' }] : messages}
           keyExtractor={(_, i) => i.toString()}
-          renderItem={({ item }) => {
-            if (item.role === 'thinking') {
-              return <ThinkingIndicator />;
-            }
-            return (
-              <View style={item.role === 'user' ? styles.userMsg : styles.aiMsg}>
-                <Text style={styles.msgText}>{item.content.replace(/\*\*/g, '')}</Text>
-              </View>
-            );
-          }}
+          renderItem={({ item }) => item.role === 'thinking' ? <ThinkingIndicator /> : <View style={item.role === 'user' ? styles.userMsg : styles.aiMsg}><Text style={styles.msgText}>{item.content.replace(/\*\*/g, '')}</Text></View>}
           contentContainerStyle={{ padding: 20, flexGrow: 1, justifyContent: 'flex-end' }}
           ListEmptyComponent={() => <View style={styles.emptyChat}><Text style={styles.emptyLogo}>✧</Text><Text style={styles.emptyChatText}>How can I help?</Text></View>}
         />
@@ -517,21 +485,7 @@ const styles = StyleSheet.create({
   tutorialTitle: { color: '#BBB', fontSize: 13, fontWeight: '700', marginBottom: 8 },
   tutorialStep: { color: '#777', fontSize: 13, lineHeight: 20, marginBottom: 4 },
   contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#222', textAlignVertical: 'top' },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
-  noticeCard: { backgroundColor: '#141416', width: '100%', borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
-  noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
-  noticeBody: { color: '#AAA', fontSize: 14, lineHeight: 20, marginBottom: 18 },
-  noticeBtnPrimary: { backgroundColor: '#FFF', paddingVertical: 13, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
-  noticeBtnPrimaryText: { color: '#000', fontSize: 15, fontWeight: '700' },
-  noticeBtnSecondary: { backgroundColor: '#202024', paddingVertical: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
-  noticeBtnSecondaryText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
-  checkboxContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  checkboxBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#555', marginRight: 10, justifyContent: 'center', alignItems: 'center' },
-  checkboxChecked: { backgroundColor: '#4A90E2', borderColor: '#4A90E2' },
-  checkboxCheck: { color: '#FFF', fontSize: 13, fontWeight: '800' },
-  checkboxLabel: { color: '#888', fontSize: 13 },
-  noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
-  noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
+  settingsSpacer: { height: 25 },
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyLogo: { fontSize: 40, color: '#333' },
   emptyChatText: { color: '#555', fontSize: 18 },
