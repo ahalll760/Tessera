@@ -61,6 +61,7 @@ const PROVIDERS = [
   }
 ];
 
+// --- THINKING INDICATOR ---
 const ThinkingIndicator = () => {
   const fadeAnim = useRef(new Animated.Value(0.3)).current;
   useEffect(() => {
@@ -80,13 +81,39 @@ const ThinkingIndicator = () => {
   );
 };
 
+// --- ELEGANT CODE BLOCK WITH 1-TAP COPY ---
+const CodeBlock = ({ code, language }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(code);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <View style={styles.codeContainer}>
+      <View style={styles.codeHeader}>
+        <Text style={styles.codeLang}>{language || 'code'}</Text>
+        <TouchableOpacity onPress={handleCopy} style={styles.copyBtn}>
+          <Text style={styles.copyBtnText}>{copied ? 'Copied ✓' : 'Copy'}</Text>
+        </TouchableOpacity>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
+        <Text style={styles.codeText}>{code}</Text>
+      </ScrollView>
+    </View>
+  );
+};
+
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('chat');
   const [showModels, setShowModels] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState(null); 
   const [isModalVisible, setIsModalVisible] = useState(false); 
   
-  // Storage & State
   const [apiKey, setApiKey] = useState('');
   const [userContext, setUserContext] = useState('');
   const [savedChats, setSavedChats] = useState([]);
@@ -96,7 +123,6 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState(PROVIDERS[0].models[0]); 
 
-  // Onboarding Notice State
   const [showNoticeModal, setShowNoticeModal] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
@@ -196,12 +222,12 @@ export default function App() {
     }
 
     const attemptFetch = async (modelToUse) => {
-      let systemPrompt = `You are a knowledgeable AI assistant. Keep answers detailed and conversational. Reply in plain text only without markdown asterisks (**).`;
+      let systemPrompt = `You are a knowledgeable AI assistant. Keep answers natural, detailed, and clear. Format any code snippets using triple backticks with the language name (e.g. \`\`\`javascript). Do not use markdown asterisks (**) in regular text.`;
       if (userContext.trim() !== '') systemPrompt += ` Context: ${userContext}`;
       
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${apiKey.trim()}`, "Content-Type": "application/json", "HTTP-Referer": "https://expo.dev", "X-Title": "Minimal AI" },
+        headers: { "Authorization": `Bearer ${apiKey.trim()}`, "Content-Type": "application/json", "HTTP-Referer": "https://expo.dev", "X-Title": "Tessarc" },
         body: JSON.stringify({ model: modelToUse, messages: [{ role: "system", content: systemPrompt }, ...chatHistory] })
       });
       
@@ -242,6 +268,30 @@ export default function App() {
     syncChatsWithStorage(list);
   };
 
+  // --- PARSER: SPLITS TEXT AND FORMATS CODE BLOCKS ---
+  const renderMessageContent = (content) => {
+    if (!content) return null;
+    const parts = content.split(/(```[\s\S]*?```)/g);
+
+    return parts.map((part, index) => {
+      if (part.startsWith('```') && part.endsWith('```')) {
+        const firstLineBreak = part.indexOf('\n');
+        let lang = 'code';
+        let code = '';
+        if (firstLineBreak !== -1) {
+          lang = part.slice(3, firstLineBreak).trim() || 'code';
+          code = part.slice(firstLineBreak + 1, -3).trim();
+        } else {
+          code = part.slice(3, -3).trim();
+        }
+        return <CodeBlock key={index} code={code} language={lang} />;
+      }
+      const cleanText = part.replace(/\*\*/g, '');
+      if (!cleanText.trim()) return null;
+      return <Text key={index} style={styles.msgText}>{cleanText}</Text>;
+    });
+  };
+
   if (currentScreen === 'settings') {
     return (
       <SafeAreaView style={styles.container}>
@@ -279,40 +329,18 @@ export default function App() {
         <TouchableOpacity onPress={startNewChat}><Text style={styles.headerIcon}>＋</Text></TouchableOpacity>
       </View>
 
-      {/* API KEY ONBOARDING MODAL WITH CHECKBOX */}
       <Modal visible={showNoticeModal && !apiKey && !dontShowAgain} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.noticeCard}>
             <Text style={styles.noticeHeader}>🔑 Setup Required</Text>
-            <Text style={styles.noticeBody}>
-              To chat with models like GPT-4o, Claude, and Gemini, you need a free OpenRouter API key.
-            </Text>
-
-            <TouchableOpacity 
-              style={styles.noticeBtnPrimary} 
-              onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}
-            >
-              <Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.noticeBtnSecondary} 
-              onPress={() => Linking.openURL('https://openrouter.ai/keys')}
-            >
-              <Text style={styles.noticeBtnSecondaryText}>Get Free Key ↗</Text>
-            </TouchableOpacity>
-
-            {/* CHECKBOX */}
+            <Text style={styles.noticeBody}>To chat with models like GPT-4o, Claude, and Gemini, you need a free OpenRouter API key.</Text>
+            <TouchableOpacity style={styles.noticeBtnPrimary} onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}><Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.noticeBtnSecondaryText}>Get Free Key ↗</Text></TouchableOpacity>
             <TouchableOpacity style={styles.checkboxContainer} onPress={toggleDontShowAgain}>
-              <View style={[styles.checkboxBox, dontShowAgain && styles.checkboxChecked]}>
-                {dontShowAgain && <Text style={styles.checkboxCheck}>✓</Text>}
-              </View>
+              <View style={[styles.checkboxBox, dontShowAgain && styles.checkboxChecked]}>{dontShowAgain && <Text style={styles.checkboxCheck}>✓</Text>}</View>
               <Text style={styles.checkboxLabel}>Don't show this again</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity style={styles.noticeDismiss} onPress={() => setShowNoticeModal(false)}>
-              <Text style={styles.noticeDismissText}>Dismiss</Text>
-            </TouchableOpacity>
+            <TouchableOpacity style={styles.noticeDismiss} onPress={() => setShowNoticeModal(false)}><Text style={styles.noticeDismissText}>Dismiss</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -376,7 +404,7 @@ export default function App() {
           key="chat-list"
           data={isLoading ? [...messages, { role: 'thinking' }] : messages}
           keyExtractor={(_, i) => i.toString()}
-          renderItem={({ item }) => item.role === 'thinking' ? <ThinkingIndicator /> : <View style={item.role === 'user' ? styles.userMsg : styles.aiMsg}><Text style={styles.msgText}>{item.content.replace(/\*\*/g, '')}</Text></View>}
+          renderItem={({ item }) => item.role === 'thinking' ? <ThinkingIndicator /> : <View style={item.role === 'user' ? styles.userMsg : styles.aiMsg}>{renderMessageContent(item.content)}</View>}
           contentContainerStyle={{ padding: 20, flexGrow: 1, justifyContent: 'flex-end' }}
           ListEmptyComponent={() => <View style={styles.emptyChat}><Text style={styles.emptyLogo}>✧</Text><Text style={styles.emptyChatText}>How can I help?</Text></View>}
         />
@@ -409,24 +437,6 @@ const styles = StyleSheet.create({
   modelRowText: { color: '#CCC', fontSize: 14 },
   selectedModelRowText: { color: '#FFF', fontWeight: '700' },
   checkmark: { color: '#4A90E2', fontSize: 14, fontWeight: 'bold' },
-
-  // NOTICE MODAL STYLES
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
-  noticeCard: { backgroundColor: '#141416', width: '100%', borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
-  noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
-  noticeBody: { color: '#AAA', fontSize: 14, lineHeight: 20, marginBottom: 18 },
-  noticeBtnPrimary: { backgroundColor: '#FFF', paddingVertical: 13, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
-  noticeBtnPrimaryText: { color: '#000', fontSize: 15, fontWeight: '700' },
-  noticeBtnSecondary: { backgroundColor: '#202024', paddingVertical: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
-  noticeBtnSecondaryText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
-  checkboxContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  checkboxBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#555', marginRight: 10, justifyContent: 'center', alignItems: 'center' },
-  checkboxChecked: { backgroundColor: '#4A90E2', borderColor: '#4A90E2' },
-  checkboxCheck: { color: '#FFF', fontSize: 13, fontWeight: '800' },
-  checkboxLabel: { color: '#888', fontSize: 13 },
-  noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
-  noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
-
   menuOverlay: { flex: 1, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)' },
   menuContent: { width: '80%', backgroundColor: '#0A0A0A', padding: 20, paddingTop: 50, borderRightWidth: 1, borderRightColor: '#222' },
   menuCloseArea: { flex: 1 }, 
@@ -452,12 +462,37 @@ const styles = StyleSheet.create({
   tutorialTitle: { color: '#BBB', fontSize: 13, fontWeight: '700', marginBottom: 8 },
   tutorialStep: { color: '#777', fontSize: 13, lineHeight: 20, marginBottom: 4 },
   contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#222', textAlignVertical: 'top' },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
+  noticeCard: { backgroundColor: '#141416', width: '100%', borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
+  noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
+  noticeBody: { color: '#AAA', fontSize: 14, lineHeight: 20, marginBottom: 18 },
+  noticeBtnPrimary: { backgroundColor: '#FFF', paddingVertical: 13, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
+  noticeBtnPrimaryText: { color: '#000', fontSize: 15, fontWeight: '700' },
+  noticeBtnSecondary: { backgroundColor: '#202024', paddingVertical: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
+  noticeBtnSecondaryText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
+  checkboxContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  checkboxBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#555', marginRight: 10, justifyContent: 'center', alignItems: 'center' },
+  checkboxChecked: { backgroundColor: '#4A90E2', borderColor: '#4A90E2' },
+  checkboxCheck: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  checkboxLabel: { color: '#888', fontSize: 13 },
+  noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
+  noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyLogo: { fontSize: 40, color: '#333' },
   emptyChatText: { color: '#555', fontSize: 18 },
   userMsg: { alignSelf: 'flex-end', backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, marginVertical: 8, maxWidth: '85%' },
-  aiMsg: { alignSelf: 'flex-start', padding: 16, marginVertical: 8, maxWidth: '90%' },
+  aiMsg: { alignSelf: 'flex-start', padding: 16, marginVertical: 8, maxWidth: '95%' },
   msgText: { color: '#FFF', fontSize: 16, lineHeight: 26 },
+
+  // --- STYLES FOR CODE BOX ---
+  codeContainer: { backgroundColor: '#0D0D10', borderRadius: 14, borderWidth: 1, borderColor: '#222', marginVertical: 10, overflow: 'hidden' },
+  codeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#151518', borderBottomWidth: 1, borderBottomColor: '#202025' },
+  codeLang: { color: '#888', fontSize: 12, fontWeight: '700', textTransform: 'lowercase' },
+  copyBtn: { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6, backgroundColor: '#202026' },
+  copyBtnText: { color: '#CCC', fontSize: 12, fontWeight: '600' },
+  codeScroll: { padding: 14 },
+  codeText: { color: '#E0E0E0', fontSize: 14, lineHeight: 22, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+
   inputContainer: { flexDirection: 'row', padding: 15, paddingBottom: 20, backgroundColor: '#000', borderTopWidth: 1, borderTopColor: '#111' },
   input: { flex: 1, backgroundColor: '#1A1A1A', color: '#FFF', paddingHorizontal: 20, paddingVertical: 15, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#222' },
   sendBtn: { marginLeft: 10, backgroundColor: '#FFF', width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
