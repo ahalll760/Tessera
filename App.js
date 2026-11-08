@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// --- EXPANDED ELITE AI MODELS (CLAUDE 3.7, O3-MINI, DEEPSEEK R1) ---
 const PROVIDERS = [
   {
     id: 'openrouter',
@@ -19,14 +20,16 @@ const PROVIDERS = [
     id: 'openai',
     name: 'OpenAI',
     models: [
-      { id: 'openai/gpt-4o', name: 'GPT-4o' },
-      { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' }
+      { id: 'openai/o3-mini', name: 'OpenAI: o3-mini (Reasoning)' },
+      { id: 'openai/gpt-4o', name: 'OpenAI: GPT-4o' },
+      { id: 'openai/gpt-4o-mini', name: 'OpenAI: GPT-4o Mini' }
     ]
   },
   {
     id: 'anthropic',
     name: 'Anthropic',
     models: [
+      { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet (New)' },
       { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' }
     ]
   },
@@ -34,7 +37,7 @@ const PROVIDERS = [
     id: 'google',
     name: 'Google',
     models: [
-      { id: 'google/gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
+      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
       { id: 'google/gemini-1.5-flash', name: 'Gemini 1.5 Flash' }
     ]
   },
@@ -42,7 +45,8 @@ const PROVIDERS = [
     id: 'deepseek',
     name: 'DeepSeek',
     models: [
-      { id: 'deepseek/deepseek-chat', name: 'DeepSeek V3' }
+      { id: 'deepseek/deepseek-r1', name: 'DeepSeek: R1 (Reasoning)' },
+      { id: 'deepseek/deepseek-chat', name: 'DeepSeek: V3' }
     ]
   },
   {
@@ -243,13 +247,11 @@ export default function App() {
     };
 
     try {
-      // Direct call - NO SILENT FALLBACK
       const aiReply = await attemptFetch(selectedModel.id);
       const finalHistory = [...chatHistory, { role: 'assistant', content: aiReply }];
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
     } catch (primaryError) {
-      // TRANSPARENT ERROR: Tell the user exactly why it failed instead of hiding it!
       const errorMsg = primaryError.message.includes('402') || primaryError.message.toLowerCase().includes('credit')
         ? `⚠️ ${selectedModel.name} requires OpenRouter credits. Please add credits at openrouter.ai/credits or select a Free model like "Auto-Router (Fast)".`
         : `⚠️ ${selectedModel.name} Error: ${primaryError.message}`;
