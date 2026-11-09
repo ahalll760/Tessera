@@ -2,62 +2,46 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TextInput, TouchableOpacity, 
   FlatList, SafeAreaView, KeyboardAvoidingView, Platform, 
-  ActivityIndicator, StatusBar, Modal, Pressable, Animated, ScrollView,
-  Linking
+  StatusBar, Modal, Pressable, Animated, ScrollView, Linking
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// --- REDESIGNED PROVIDERS LIST (HUGE FREE TIER) ---
 const PROVIDERS = [
   {
-    id: 'openrouter',
-    name: 'OpenRouter (Free)',
+    id: 'free_tier',
+    name: '🌟 100% Free Models',
     models: [
-      { id: 'openrouter/free', name: 'Auto-Router (Fast)' },
-      { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4 (Free)' }
+      { id: 'openrouter/free', name: 'Auto-Router (Fast & Free)' },
+      { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Meta: Llama 3.3 70B' },
+      { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek: R1 (Reasoning)' },
+      { id: 'qwen/qwen-2.5-coder-32b-instruct:free', name: 'Alibaba: Qwen 2.5 Coder' },
+      { id: 'google/gemma-2-9b-it:free', name: 'Google: Gemma 2 9B' }
     ]
   },
   {
     id: 'openai',
     name: 'OpenAI (Paid)',
     models: [
-      { id: 'openai/gpt-4o', name: 'GPT-4o (Paid)' },
-      { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini (Paid)' }
+      { id: 'openai/o3-mini', name: 'o3-mini (Reasoning)' },
+      { id: 'openai/gpt-4o', name: 'GPT-4o' },
+      { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' }
     ]
   },
   {
     id: 'anthropic',
     name: 'Anthropic (Paid)',
     models: [
-      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (Paid)' }
+      { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet' },
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' }
     ]
   },
   {
     id: 'google',
-    name: 'Google (Paid)',
+    name: 'Google Pro (Paid)',
     models: [
-      { id: 'google/gemini-1.5-pro', name: 'Gemini 1.5 Pro (Paid)' },
-      { id: 'google/gemini-1.5-flash', name: 'Gemini 1.5 Flash (Paid)' }
-    ]
-  },
-  {
-    id: 'deepseek',
-    name: 'DeepSeek (Paid)',
-    models: [
-      { id: 'deepseek/deepseek-chat', name: 'DeepSeek V3 (Paid)' }
-    ]
-  },
-  {
-    id: 'meta',
-    name: 'Meta (Paid)',
-    models: [
-      { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (Paid)' }
-    ]
-  },
-  {
-    id: 'alibaba',
-    name: 'Alibaba (Paid)',
-    models: [
-      { id: 'qwen/qwen-2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder (Paid)' }
+      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+      { id: 'google/gemini-1.5-flash', name: 'Gemini 1.5 Flash' }
     ]
   }
 ];
@@ -87,8 +71,9 @@ export default function App() {
   const [selectedCompany, setSelectedCompany] = useState(null); 
   const [isModalVisible, setIsModalVisible] = useState(false); 
   
+  // Storage & State
   const [apiKey, setApiKey] = useState('');
-  const [backupKey, setBackupKey] = useState(''); // Groq Backup Key
+  const [anthropicKey, setAnthropicKey] = useState(''); 
   const [userContext, setUserContext] = useState('');
   const [savedChats, setSavedChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
@@ -96,6 +81,9 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState(PROVIDERS[0].models[0]); 
+
+  const [showNoticeModal, setShowNoticeModal] = useState(false);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
 
   const slideAnim = useRef(new Animated.Value(-350)).current; 
 
@@ -105,15 +93,22 @@ export default function App() {
         const storedKey = await AsyncStorage.getItem('@council_api_key_v1');
         if (storedKey) setApiKey(storedKey);
 
-        const storedBackup = await AsyncStorage.getItem('@council_backup_key_v1');
-        if (storedBackup) setBackupKey(storedBackup);
+        const storedAnthropic = await AsyncStorage.getItem('@council_anthropic_key_v1');
+        if (storedAnthropic) setAnthropicKey(storedAnthropic);
 
         const storedChats = await AsyncStorage.getItem('@council_chats_v1');
         if (storedChats) setSavedChats(JSON.parse(storedChats));
         
         const storedContext = await AsyncStorage.getItem('@council_context_v1');
         if (storedContext) setUserContext(storedContext);
-      } catch (err) { console.log('Storage error:', err); }
+
+        const hideNotice = await AsyncStorage.getItem('@council_hide_api_notice');
+        if (hideNotice === 'true') {
+          setDontShowAgain(true);
+        } else if (!storedKey && !storedAnthropic) {
+          setShowNoticeModal(true);
+        }
+      } catch (err) { console.log(err); }
     })();
   }, []);
 
@@ -122,14 +117,22 @@ export default function App() {
     try { await AsyncStorage.setItem('@council_api_key_v1', key.trim()); } catch (e) {}
   };
 
-  const handleBackupKeyChange = async (key) => {
-    setBackupKey(key);
-    try { await AsyncStorage.setItem('@council_backup_key_v1', key.trim()); } catch (e) {}
+  const handleAnthropicKeyChange = async (key) => {
+    setAnthropicKey(key);
+    try { await AsyncStorage.setItem('@council_anthropic_key_v1', key.trim()); } catch (e) {}
   };
 
   const handleContextChange = async (text) => {
     setUserContext(text);
     try { await AsyncStorage.setItem('@council_context_v1', text); } catch (e) {}
+  };
+
+  const toggleDontShowAgain = async () => {
+    const nextVal = !dontShowAgain;
+    setDontShowAgain(nextVal);
+    try {
+      await AsyncStorage.setItem('@council_hide_api_notice', nextVal ? 'true' : 'false');
+    } catch (e) {}
   };
 
   const syncChatsWithStorage = async (updatedList) => {
@@ -168,7 +171,6 @@ export default function App() {
 
   const sendMessage = async () => {
     if (!inputText.trim()) return;
-    
     const currentId = activeChatId || Date.now().toString();
     if (!activeChatId) setActiveChatId(currentId);
     
@@ -178,65 +180,79 @@ export default function App() {
     setInputText('');
     setIsLoading(true);
 
-    if (!apiKey.trim() && !backupKey.trim()) {
+    const isClaudeModel = selectedModel.id.includes('claude');
+
+    if (isClaudeModel && !anthropicKey.trim() && !apiKey.trim()) {
       setTimeout(() => {
-        setMessages([...chatHistory, { 
-          role: 'assistant', 
-          content: '⚠️ Please add an OpenRouter API key or a Groq Backup key in Settings to begin.' 
-        }]);
+        setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Please add either an Anthropic Key or OpenRouter Key in Settings to use Claude.' }]);
+        setIsLoading(false);
+      }, 300);
+      return;
+    }
+    if (!isClaudeModel && !apiKey.trim()) {
+      setTimeout(() => {
+        setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Please add your OpenRouter API key in Settings (☰ > ⚙ Settings).' }]);
         setIsLoading(false);
       }, 300);
       return;
     }
 
-    let systemPrompt = `You are a knowledgeable, articulate, and conversational AI assistant. Provide detailed, engaging, and well-explained answers. Reply in plain text only without markdown asterisks (**).`;
-    if (userContext.trim() !== '') systemPrompt += ` Context: ${userContext}`;
+    const attemptFetch = async () => {
+      let systemPrompt = `You are Tessarc, a brilliant, witty, and charismatic AI assistant powered by ${selectedModel.name}. Format code cleanly. Do not use markdown asterisks (**) in regular text.`;
+      if (userContext.trim() !== '') systemPrompt += ` User Context: ${userContext}`;
 
-    // --- ATTEMPT 1: MAIN OPENROUTER API ---
-    let aiReply = null;
-    try {
-      if (!apiKey.trim()) throw new Error("No primary key");
-      
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${apiKey.trim()}`, "Content-Type": "application/json", "HTTP-Referer": "https://expo.dev", "X-Title": "Minimal AI" },
-        body: JSON.stringify({ model: selectedModel.id, messages: [{ role: "system", content: systemPrompt }, ...chatHistory] })
-      });
-      
-      if (!response.ok) throw new Error("OpenRouter failed");
-      const data = await response.json();
-      aiReply = data.choices[0].message.content;
-    } catch (primaryErr) {
-      // --- ATTEMPT 2: AUTOMATIC FAILOVER TO GROQ BACKUP ---
-      try {
-        if (!backupKey.trim()) throw new Error("No backup key available");
-        
-        // Groq uses an OpenAI-compatible endpoint structure
-        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      if (isClaudeModel && anthropicKey.trim()) {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
-          headers: { "Authorization": `Bearer ${backupKey.trim()}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            model: "llama-3.3-70b-versatile", // Reliable fast backup model on Groq
-            messages: [{ role: "system", content: systemPrompt }, ...chatHistory] 
+          headers: {
+            "x-api-key": anthropicKey.trim(),
+            "anthropic-version": "2023-06-05",
+            "content-type": "application/json",
+            "anthropic-dangerous-direct-browser-access": "true" 
+          },
+          body: JSON.stringify({
+            model: selectedModel.id === 'anthropic/claude-3.7-sonnet' ? 'claude-3-7-sonnet-20250219' : 'claude-3-5-sonnet-20241022',
+            max_tokens: 4000,
+            system: systemPrompt,
+            messages: chatHistory.map(m => ({ role: m.role, content: m.content }))
           })
         });
 
-        if (!response.ok) throw new Error("Groq backup failed");
         const data = await response.json();
-        aiReply = `[Switched to Groq Backup] \n\n` + data.choices[0].message.content;
-      } catch (backupErr) {
-        setMessages([...chatHistory, { role: 'assistant', content: '❌ Error: Both primary (OpenRouter) and backup (Groq) keys failed or are missing credits.' }]);
-        setIsLoading(false);
-        return;
-      }
-    }
+        if (!response.ok || data.error) throw new Error(data?.error?.message || `Anthropic API Error`);
+        return data.content[0].text;
+      } 
+      
+      const targetKey = apiKey.trim() || anthropicKey.trim();
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { 
+          "Authorization": `Bearer ${targetKey}`, 
+          "Content-Type": "application/json", 
+          "HTTP-Referer": "https://tessarc.vercel.app", 
+          "X-Title": "Tessarc" 
+        },
+        body: JSON.stringify({ 
+          model: selectedModel.id, 
+          messages: [{ role: "system", content: systemPrompt }, ...chatHistory] 
+        })
+      });
+      
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.error) throw new Error(data?.error?.message || `API Error`);
+      return data.choices[0].message.content;
+    };
 
-    if (aiReply) {
+    try {
+      const aiReply = await attemptFetch();
       const finalHistory = [...chatHistory, { role: 'assistant', content: aiReply }];
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
+    } catch (e) {
+      setMessages([...chatHistory, { role: 'assistant', content: `⚠️ Error: ${e.message || "Failed. Make sure you have credits if using a paid model."}` }]);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const saveSessionToHistory = (chatId, updatedMessages) => {
@@ -249,7 +265,6 @@ export default function App() {
     syncChatsWithStorage(list);
   };
 
-  // --- SETTINGS SCREEN WITH BACKUP CONFIG ---
   if (currentScreen === 'settings') {
     return (
       <SafeAreaView style={styles.container}>
@@ -259,58 +274,23 @@ export default function App() {
           <Text style={styles.headerTitle}>Settings</Text>
           <View style={{width: 30}} />
         </View>
-
         <ScrollView style={styles.settingsContent}>
-          {/* PRIMARY KEY */}
-          <Text style={styles.sectionLabel}>PRIMARY: OPENROUTER API KEY</Text>
-          <TextInput 
-            style={styles.keyInput} 
-            value={apiKey} 
-            onChangeText={handleApiKeyChange} 
-            placeholder="sk-or-v1-..." 
-            placeholderTextColor="#444" 
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://openrouter.ai/keys')}>
-            <Text style={styles.linkButtonText}>Get OpenRouter Key ↗</Text>
-          </TouchableOpacity>
+          
+          <Text style={styles.sectionLabel}>OPENROUTER API KEY (OPTIONAL)</Text>
+          <Text style={styles.helperText}>Used for GPT-4o, Gemini, DeepSeek, and Llama.</Text>
+          <TextInput style={styles.keyInput} value={apiKey} onChangeText={handleApiKeyChange} placeholder="sk-or-v1-..." placeholderTextColor="#444" autoCapitalize="none" autoCorrect={false} />
+          <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.linkButtonText}>Get OpenRouter Key ↗</Text></TouchableOpacity>
 
-          <View style={{height: 15}} />
+          <View style={{height: 10}} />
 
-          {/* BACKUP KEY */}
-          <Text style={styles.sectionLabel}>BACKUP: GROQ API KEY (FAILOVER)</Text>
-          <Text style={styles.helperText}>If OpenRouter hits a limit or goes down, your requests automatically route through Groq.</Text>
-          <TextInput 
-            style={styles.keyInput} 
-            value={backupKey} 
-            onChangeText={handleBackupKeyChange} 
-            placeholder="gsk_..." 
-            placeholderTextColor="#444" 
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://console.groq.com/keys')}>
-            <Text style={styles.linkButtonText}>Get Free Groq Backup Key ↗</Text>
-          </TouchableOpacity>
-
-          <View style={styles.tutorialBox}>
-            <Text style={styles.tutorialTitle}>How Failover Works:</Text>
-            <Text style={styles.tutorialStep}>• Groq provides ultra-fast open-source model inference.</Text>
-            <Text style={styles.tutorialStep}>• If your primary key fails, the app instantly switches rails to keep your chat alive.</Text>
-          </View>
-
-          <View style={styles.settingsSpacer} />
-
+          <Text style={styles.sectionLabel}>ANTHROPIC (CLAUDE) API KEY</Text>
+          <Text style={styles.helperText}>Direct native key for Claude 3.7 Sonnet.</Text>
+          <TextInput style={styles.keyInput} value={anthropicKey} onChangeText={handleAnthropicKeyChange} placeholder="sk-ant-..." placeholderTextColor="#444" autoCapitalize="none" autoCorrect={false} />
+          <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://console.anthropic.com/settings/keys')}><Text style={styles.linkButtonText}>Get Anthropic Claude Key ↗</Text></TouchableOpacity>
+          
+          <View style={{height: 20}} />
           <Text style={styles.sectionLabel}>CUSTOM INSTRUCTIONS</Text>
-          <TextInput 
-            style={styles.contextInput} 
-            value={userContext} 
-            onChangeText={handleContextChange} 
-            multiline 
-            placeholder="e.g., Explain things simply..." 
-            placeholderTextColor="#444" 
-          />
+          <TextInput style={styles.contextInput} value={userContext} onChangeText={handleContextChange} multiline placeholder="e.g., Explain things simply..." placeholderTextColor="#444" />
           <View style={{height: 60}} />
         </ScrollView>
       </SafeAreaView>
@@ -320,42 +300,37 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
-      
       <View style={styles.header}>
         <TouchableOpacity onPress={openMenu}><Text style={styles.headerIcon}>☰</Text></TouchableOpacity>
-        
-        <TouchableOpacity 
-          onPress={() => {
-            setSelectedCompany(null);
-            setShowModels(!showModels);
-          }} 
-          style={styles.modelBtn}
-        >
-          <Text style={styles.modelBtnText} numberOfLines={1}>{selectedModel.name} ▾</Text>
-        </TouchableOpacity>
-
+        <TouchableOpacity onPress={() => { setSelectedCompany(null); setShowModels(!showModels); }} style={styles.modelBtn}><Text style={styles.modelBtnText} numberOfLines={1}>{selectedModel.name} ▾</Text></TouchableOpacity>
         <TouchableOpacity onPress={startNewChat}><Text style={styles.headerIcon}>＋</Text></TouchableOpacity>
       </View>
+
+      <Modal visible={showNoticeModal && !apiKey && !anthropicKey && !dontShowAgain} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.noticeCard}>
+            <Text style={styles.noticeHeader}>🔑 Setup Required</Text>
+            <Text style={styles.noticeBody}>To chat with models, please add an OpenRouter or Anthropic API key in Settings.</Text>
+            <TouchableOpacity style={styles.noticeBtnPrimary} onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}><Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.noticeBtnSecondaryText}>Get OpenRouter Key ↗</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.checkboxContainer} onPress={toggleDontShowAgain}>
+              <View style={[styles.checkboxBox, dontShowAgain && styles.checkboxChecked]}>{dontShowAgain && <Text style={styles.checkboxCheck}>✓</Text>}</View>
+              <Text style={styles.checkboxLabel}>Don't show this again</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.noticeDismiss} onPress={() => setShowNoticeModal(false)}><Text style={styles.noticeDismissText}>Dismiss</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {showModels && (
         <View style={styles.modelDropdown}>
           {!selectedCompany ? (
             <View>
-              <View style={styles.dropdownHeader}>
-                <Text style={styles.dropdownHeaderTitle}>Select Provider</Text>
-                <TouchableOpacity onPress={() => setShowModels(false)}>
-                  <Text style={styles.dropdownCloseBtn}>✕</Text>
-                </TouchableOpacity>
-              </View>
+              <View style={styles.dropdownHeader}><Text style={styles.dropdownHeaderTitle}>Select Provider</Text><TouchableOpacity onPress={() => setShowModels(false)}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity></View>
               <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false}>
                 {PROVIDERS.map((provider) => (
-                  <TouchableOpacity 
-                    key={provider.id} 
-                    style={styles.providerRow}
-                    onPress={() => setSelectedCompany(provider)}
-                  >
-                    <Text style={styles.providerRowText}>{provider.name}</Text>
-                    <Text style={styles.providerChevron}>›</Text>
+                  <TouchableOpacity key={provider.id} style={styles.providerRow} onPress={() => setSelectedCompany(provider)}>
+                    <Text style={styles.providerRowText}>{provider.name}</Text><Text style={styles.providerChevron}>›</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -363,30 +338,15 @@ export default function App() {
           ) : (
             <View>
               <View style={styles.dropdownHeader}>
-                <TouchableOpacity onPress={() => setSelectedCompany(null)} style={styles.backRow}>
-                  <Text style={styles.backArrow}>‹</Text>
-                  <Text style={styles.dropdownHeaderTitle}>{selectedCompany.name}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => { setSelectedCompany(null); setShowModels(false); }}>
-                  <Text style={styles.dropdownCloseBtn}>✕</Text>
-                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setSelectedCompany(null)} style={styles.backRow}><Text style={styles.backArrow}>‹</Text><Text style={styles.dropdownHeaderTitle}>{selectedCompany.name}</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => { setSelectedCompany(null); setShowModels(false); }}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity>
               </View>
               <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false}>
                 {selectedCompany.models.map((m) => {
                   const isSelected = selectedModel.id === m.id;
                   return (
-                    <TouchableOpacity 
-                      key={m.id} 
-                      style={[styles.modelRow, isSelected && styles.selectedModelRow]}
-                      onPress={() => {
-                        setSelectedModel(m);
-                        setSelectedCompany(null);
-                        setShowModels(false);
-                      }}
-                    >
-                      <Text style={[styles.modelRowText, isSelected && styles.selectedModelRowText]}>
-                        {m.name}
-                      </Text>
+                    <TouchableOpacity key={m.id} style={[styles.modelRow, isSelected && styles.selectedModelRow]} onPress={() => { setSelectedModel(m); setSelectedCompany(null); setShowModels(false); }}>
+                      <Text style={[styles.modelRowText, isSelected && styles.selectedModelRowText]}>{m.name}</Text>
                       {isSelected && <Text style={styles.checkmark}>✓</Text>}
                     </TouchableOpacity>
                   );
@@ -401,7 +361,6 @@ export default function App() {
         <View style={styles.menuOverlay}>
           <Animated.View style={[styles.menuContent, { transform: [{ translateX: slideAnim }] }]}>
             <TouchableOpacity style={styles.newChatBtn} onPress={startNewChat}><Text style={styles.newChatBtnText}>＋ New Chat</Text></TouchableOpacity>
-            
             <Text style={styles.historyHeading}>RECENTS</Text>
             <ScrollView style={styles.chatListScroll} showsVerticalScrollIndicator={false}>
               {savedChats.length === 0 ? <Text style={styles.emptyHistoryText}>No chats yet.</Text> : savedChats.map(c => (
@@ -411,12 +370,7 @@ export default function App() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-
-            <View style={styles.menuFooter}>
-              <TouchableOpacity style={styles.settingsRow} onPress={() => { closeMenu(); setCurrentScreen('settings'); }}>
-                <Text style={styles.settingsRowText}>⚙ Settings</Text>
-              </TouchableOpacity>
-            </View>
+            <View style={styles.menuFooter}><TouchableOpacity style={styles.settingsRow} onPress={() => { closeMenu(); setCurrentScreen('settings'); }}><Text style={styles.settingsRowText}>⚙ Settings</Text></TouchableOpacity></View>
           </Animated.View>
           <Pressable style={styles.menuCloseArea} onPress={closeMenu} />
         </View>
@@ -444,6 +398,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#111' },
   headerIcon: { color: '#FFF', fontSize: 24, padding: 5 },
+  headerTitle: { color: '#FFF', fontSize: 18, fontWeight: '700' },
   modelBtn: { backgroundColor: '#111', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, maxWidth: 210 },
   modelBtnText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
   modelDropdown: { backgroundColor: '#161618', position: 'absolute', top: 70, alignSelf: 'center', zIndex: 20, borderRadius: 18, width: 270, borderWidth: 1, borderColor: '#2A2A2E', overflow: 'hidden' },
@@ -485,7 +440,21 @@ const styles = StyleSheet.create({
   tutorialTitle: { color: '#BBB', fontSize: 13, fontWeight: '700', marginBottom: 8 },
   tutorialStep: { color: '#777', fontSize: 13, lineHeight: 20, marginBottom: 4 },
   contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#222', textAlignVertical: 'top' },
-  settingsSpacer: { height: 25 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
+  noticeCard: { backgroundColor: '#141416', width: '100%', borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
+  noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
+  noticeBody: { color: '#AAA', fontSize: 14, lineHeight: 20, marginBottom: 18 },
+  noticeBtnPrimary: { backgroundColor: '#FFF', paddingVertical: 13, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
+  noticeBtnPrimaryText: { color: '#000', fontSize: 15, fontWeight: '700' },
+  noticeBtnSecondary: { backgroundColor: '#202024', paddingVertical: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
+  noticeBtnSecondaryText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
+  checkboxContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  checkboxBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#555', marginRight: 10, justifyContent: 'center', alignItems: 'center' },
+  checkboxChecked: { backgroundColor: '#4A90E2', borderColor: '#4A90E2' },
+  checkboxCheck: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  checkboxLabel: { color: '#888', fontSize: 13 },
+  noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
+  noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyLogo: { fontSize: 40, color: '#333' },
   emptyChatText: { color: '#555', fontSize: 18 },
@@ -494,6 +463,4 @@ const styles = StyleSheet.create({
   msgText: { color: '#FFF', fontSize: 16, lineHeight: 26 },
   inputContainer: { flexDirection: 'row', padding: 15, paddingBottom: 20, backgroundColor: '#000', borderTopWidth: 1, borderTopColor: '#111' },
   input: { flex: 1, backgroundColor: '#1A1A1A', color: '#FFF', paddingHorizontal: 20, paddingVertical: 15, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#222' },
-  sendBtn: { marginLeft: 10, backgroundColor: '#FFF', width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
-  sendTxt: { color: '#000', fontSize: 24, fontWeight: 'bold' }
-});
+  sendBtn: { marginLeft: 10, backgroundColor: '#FFF', width:
