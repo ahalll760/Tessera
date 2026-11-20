@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const DEFAULT_PROVIDERS = [
   {
     id: 'free_tier',
-    name: '🌟 Free',
+    name: 'Free',
     models: [
       { id: 'openrouter/free', name: 'Auto-Router (Fast)', isVision: true, free: true },
       { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4', isVision: true, free: true },
@@ -45,10 +45,10 @@ const DEFAULT_PROVIDERS = [
 ];
 
 const STARTER_PROMPTS = [
-  { label: '💻 Draft code & file', prompt: 'Create a clean Python script file to organize my downloads folder' },
-  { label: '🌦️ Live weather', prompt: "What's the weather looking like today in Paris?" },
-  { label: '🌐 Search live web', prompt: 'What are the biggest AI & tech news stories right now?', web: true },
-  { label: '🧠 Brainstorm ideas', prompt: 'Give me 3 creative app ideas I can build and launch this week' }
+  { icon: '</>', title: 'Draft code & export file', sub: 'Python, Lua, HTML & more', prompt: 'Create a clean Python script file to organize my downloads folder' },
+  { icon: '◎', title: 'Check live weather', sub: 'Real-time global forecast', prompt: "What's the weather looking like today in Paris?" },
+  { icon: '⊕', title: 'Search the live web', sub: 'Verified source links', prompt: 'What are the biggest AI & tech news stories right now?', web: true },
+  { icon: '✦', title: 'Brainstorm startup ideas', sub: 'Fast product strategy', prompt: 'Give me 3 creative app ideas I can build and launch this week' }
 ];
 
 const EXT_MAP = { javascript: 'js', js: 'js', jsx: 'jsx', ts: 'ts', python: 'py', py: 'py', lua: 'lua', html: 'html', css: 'css', json: 'json', sql: 'sql', sh: 'sh', md: 'md', txt: 'txt' };
@@ -181,7 +181,7 @@ const processVideo = (file) => new Promise((resolve, reject) => {
   video.src = url; video.load();
 });
 
-const EmptyHero = ({ onSelectPrompt }) => {
+const EmptyHero = ({ onSelectPrompt, onOpenSettings, hasKey }) => {
   const pulse = useRef(new Animated.Value(0.65)).current;
   const scale = useRef(new Animated.Value(1)).current;
   const fadeUp = useRef(new Animated.Value(0)).current;
@@ -194,7 +194,7 @@ const EmptyHero = ({ onSelectPrompt }) => {
         Animated.timing(pulse, { toValue: 0.65, duration: 1800, useNativeDriver: true })
       ]),
       Animated.sequence([
-        Animated.timing(scale, { toValue: 1.08, duration: 1800, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 1.07, duration: 1800, useNativeDriver: true }),
         Animated.timing(scale, { toValue: 1, duration: 1800, useNativeDriver: true })
       ])
     ])).start();
@@ -206,12 +206,25 @@ const EmptyHero = ({ onSelectPrompt }) => {
         <Text style={styles.emptyLogo}>✧</Text>
       </Animated.View>
       <Text style={styles.heroBrand}>Tessarc</Text>
-      <Text style={styles.heroTagline}>Multi-model AI • Live Web • File Export</Text>
-      <Text style={styles.emptyChatText}>How can I help you today?</Text>
+      <Text style={styles.emptyChatText}>One workspace for every frontier AI.</Text>
+
+      <View style={styles.trustStrip}>
+        <Text style={styles.trustText}>OpenAI • Claude • Gemini • DeepSeek • Llama</Text>
+        <Text style={styles.trustSub}>Local-first privacy • Live Web • Direct file export</Text>
+      </View>
+
+      {!hasKey && (
+        <TouchableOpacity style={styles.heroPrimaryCta} onPress={onOpenSettings} activeOpacity={0.85}>
+          <Text style={styles.heroPrimaryCtaText}>Connect Free API Key →</Text>
+        </TouchableOpacity>
+      )}
+
       <View style={styles.starterGrid}>
         {STARTER_PROMPTS.map((item, idx) => (
-          <TouchableOpacity key={idx} style={styles.starterChip} onPress={() => onSelectPrompt(item)} activeOpacity={0.7}>
-            <Text style={styles.starterChipText}>{item.label}</Text>
+          <TouchableOpacity key={idx} style={styles.starterCard} onPress={() => onSelectPrompt(item)} activeOpacity={0.75}>
+            <Text style={styles.starterIcon}>{item.icon}</Text>
+            <Text style={styles.starterTitle}>{item.title}</Text>
+            <Text style={styles.starterSub}>{item.sub}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -314,6 +327,11 @@ export default function App() {
   const listFade = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    // Fix browser tab title from 'actual-chatbot' to 'Tessarc'
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      document.title = 'Tessarc — Multi-Model AI Workspace';
+    }
+
     (async () => {
       try {
         const storedKey = await AsyncStorage.getItem('@council_api_key_v1');
@@ -351,7 +369,7 @@ export default function App() {
 
         const pick = (fn) => formatted.filter(fn).slice(0, 10);
         const liveProviders = [
-          { id: 'free_tier', name: '🌟 Free', models: freeModels },
+          { id: 'free_tier', name: 'Free', models: freeModels },
           { id: 'google', name: 'Google', models: googleModels },
           { id: 'openai', name: 'OpenAI', models: pick(m => m.id.startsWith('openai/')) },
           { id: 'anthropic', name: 'Claude', models: pick(m => m.id.startsWith('anthropic/')) },
@@ -608,23 +626,25 @@ export default function App() {
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#000" />
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => setCurrentScreen('chat')}><Text style={styles.headerIcon}>←</Text></TouchableOpacity>
-          <Text style={styles.headerTitle}>Settings</Text>
-          <View style={{width: 30}} />
+          <View style={styles.headerInner}>
+            <TouchableOpacity onPress={() => setCurrentScreen('chat')}><Text style={styles.headerIcon}>←</Text></TouchableOpacity>
+            <Text style={styles.headerTitle}>Settings</Text>
+            <View style={{width: 30}} />
+          </View>
         </View>
-        <ScrollView style={styles.settingsContent}>
+        <ScrollView style={styles.settingsContent} contentContainerStyle={styles.desktopCenter}>
           <Text style={styles.sectionLabel}>OPENROUTER API KEY</Text>
           <Text style={styles.helperText}>Unlocks Free models, Gemini, Hydrogen, GPT-4o, DeepSeek & Llama.</Text>
-          <TextInput style={styles.keyInput} value={apiKey} onChangeText={handleApiKeyChange} placeholder="sk-or-v1-..." placeholderTextColor="#555" autoCapitalize="none" autoCorrect={false} />
+          <TextInput style={styles.keyInput} value={apiKey} onChangeText={handleApiKeyChange} placeholder="sk-or-v1-..." placeholderTextColor="#666" autoCapitalize="none" autoCorrect={false} />
           <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.linkButtonText}>Get OpenRouter Key ↗</Text></TouchableOpacity>
           <View style={{height: 10}} />
           <Text style={styles.sectionLabel}>ANTHROPIC (CLAUDE) API KEY</Text>
           <Text style={styles.helperText}>Optional direct native key for Claude 3.7 Sonnet.</Text>
-          <TextInput style={styles.keyInput} value={anthropicKey} onChangeText={handleAnthropicKeyChange} placeholder="sk-ant-..." placeholderTextColor="#555" autoCapitalize="none" autoCorrect={false} />
+          <TextInput style={styles.keyInput} value={anthropicKey} onChangeText={handleAnthropicKeyChange} placeholder="sk-ant-..." placeholderTextColor="#666" autoCapitalize="none" autoCorrect={false} />
           <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://console.anthropic.com/settings/keys')}><Text style={styles.linkButtonText}>Get Anthropic Claude Key ↗</Text></TouchableOpacity>
           <View style={{height: 20}} />
           <Text style={styles.sectionLabel}>CUSTOM INSTRUCTIONS</Text>
-          <TextInput style={styles.contextInput} value={userContext} onChangeText={handleContextChange} multiline placeholder="e.g., Explain things simply..." placeholderTextColor="#555" />
+          <TextInput style={styles.contextInput} value={userContext} onChangeText={handleContextChange} multiline placeholder="e.g., Explain things simply..." placeholderTextColor="#666" />
           <View style={{height: 60}} />
         </ScrollView>
       </SafeAreaView>
@@ -637,22 +657,25 @@ export default function App() {
         .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
         .slice(0, 25)
     : activeProvider.models;
+  const hasAnyKey = Boolean(apiKey.trim() || anthropicKey.trim());
   const canSend = (inputText.trim().length > 0 || attachments.length > 0) && !isLoading;
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
       <View style={styles.header}>
-        <TouchableOpacity onPress={openMenu}><Text style={styles.headerIcon}>☰</Text></TouchableOpacity>
-        <TouchableOpacity onPress={openModelSheet} style={styles.modelBtn} activeOpacity={0.7}>
-          <View style={[styles.liveDot, { backgroundColor: selectedModel.free ? '#4ADE80' : '#4A90E2' }]} />
-          <Text style={styles.modelBtnText} numberOfLines={1}>{selectedModel.name}</Text>
-          <Text style={styles.modelBtnChevron}>▾</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={startNewChat}><Text style={styles.headerIcon}>＋</Text></TouchableOpacity>
+        <View style={styles.headerInner}>
+          <TouchableOpacity onPress={openMenu}><Text style={styles.headerIcon}>☰</Text></TouchableOpacity>
+          <TouchableOpacity onPress={openModelSheet} style={styles.modelBtn} activeOpacity={0.7}>
+            <View style={[styles.liveDot, { backgroundColor: selectedModel.free ? '#4ADE80' : '#4A90E2' }]} />
+            <Text style={styles.modelBtnText} numberOfLines={1}>{selectedModel.name}</Text>
+            <Text style={styles.modelBtnChevron}>▾</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={startNewChat}><Text style={styles.headerIcon}>＋</Text></TouchableOpacity>
+        </View>
       </View>
 
-      <Modal visible={showNoticeModal && !apiKey && !anthropicKey && !dontShowAgain} transparent animationType="fade">
+      <Modal visible={showNoticeModal && !hasAnyKey && !dontShowAgain} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.noticeCard}>
             <Text style={styles.noticeHeader}>🔑 Setup Required</Text>
@@ -680,7 +703,7 @@ export default function App() {
               </View>
               <TouchableOpacity onPress={closeModelSheet} style={styles.sheetClosePill}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity>
             </View>
-            <TextInput style={styles.sheetSearchInput} value={modelSearch} onChangeText={setModelSearch} placeholder="🔍 Search all models (hydrogen, gemini, claude)..." placeholderTextColor="#777" autoCapitalize="none" />
+            <TextInput style={styles.sheetSearchInput} value={modelSearch} onChangeText={setModelSearch} placeholder="Search all models (hydrogen, gemini, claude)..." placeholderTextColor="#777" autoCapitalize="none" />
             {!modelSearch.trim() && (
               <View style={styles.companyTabsWrap}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}>
@@ -758,21 +781,21 @@ export default function App() {
               </AnimatedBubble>
             );
           }}
-          contentContainerStyle={{ padding: 20, flexGrow: 1, justifyContent: 'flex-end' }}
-          ListEmptyComponent={() => <EmptyHero onSelectPrompt={handleSelectStarter} />}
+          contentContainerStyle={[styles.chatScrollContent, styles.desktopCenter]}
+          ListEmptyComponent={() => <EmptyHero onSelectPrompt={handleSelectStarter} onOpenSettings={() => setCurrentScreen('settings')} hasKey={hasAnyKey} />}
         />
 
-        {mediaNotice ? <Text style={styles.mediaNoticeText}>{mediaNotice}</Text> : null}
+        {mediaNotice ? <Text style={[styles.mediaNoticeText, styles.desktopCenter]}>{mediaNotice}</Text> : null}
 
         {editingIndex !== null && (
-          <View style={styles.editingBanner}>
+          <View style={[styles.editingBanner, styles.desktopCenter]}>
             <Text style={styles.editingBannerText}>✎ Editing message (rewinds chat below)</Text>
             <TouchableOpacity onPress={cancelEdit}><Text style={styles.editingCancelText}>Cancel ✕</Text></TouchableOpacity>
           </View>
         )}
 
         {attachments.length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.previewBar}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.previewBar, styles.desktopCenter]}>
             {attachments.map((att, idx) => (
               <View key={idx} style={styles.previewCard}>
                 <Image source={{ uri: att.preview }} style={styles.previewThumb} />
@@ -783,15 +806,17 @@ export default function App() {
           </ScrollView>
         )}
 
-        <View style={styles.inputContainer}>
-          <TouchableOpacity style={styles.attachBtn} onPress={handlePickMedia}><Text style={styles.attachTxt}>📎</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.attachBtn, webSearchOn && styles.webBtnActive]} onPress={() => setWebSearchOn(!webSearchOn)}>
-            <Text style={styles.attachTxt}>🌐</Text>
-          </TouchableOpacity>
-          <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : "Message Tessarc..."} placeholderTextColor="#888" />
-          <TouchableOpacity style={[styles.sendBtn, !canSend && styles.sendBtnIdle, editingIndex !== null && { backgroundColor: '#4A90E2' }]} onPress={sendMessage} disabled={!canSend}>
-            <Text style={[styles.sendTxt, { color: editingIndex !== null ? '#FFF' : (canSend ? '#000' : '#888') }]}>{editingIndex !== null ? '✓' : '↑'}</Text>
-          </TouchableOpacity>
+        <View style={styles.inputOuter}>
+          <View style={[styles.inputContainer, styles.desktopCenter]}>
+            <TouchableOpacity style={styles.attachBtn} onPress={handlePickMedia}><Text style={styles.attachTxt}>📎</Text></TouchableOpacity>
+            <TouchableOpacity style={[styles.attachBtn, webSearchOn && styles.webBtnActive]} onPress={() => setWebSearchOn(!webSearchOn)}>
+              <Text style={styles.attachTxt}>🌐</Text>
+            </TouchableOpacity>
+            <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : "Ask Tessarc anything..."} placeholderTextColor="#999" />
+            <TouchableOpacity style={[styles.sendBtn, !canSend && styles.sendBtnIdle, editingIndex !== null && { backgroundColor: '#4A90E2' }]} onPress={sendMessage} disabled={!canSend}>
+              <Text style={[styles.sendTxt, { color: editingIndex !== null ? '#FFF' : (canSend ? '#000' : '#BBB') }]}>{editingIndex !== null ? '✓' : '↑'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -800,15 +825,17 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#141418' },
+  desktopCenter: { width: '100%', maxWidth: 760, alignSelf: 'center' },
+  header: { borderBottomWidth: 1, borderBottomColor: '#16161C', paddingVertical: 12 },
+  headerInner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, width: '100%', maxWidth: 820, alignSelf: 'center' },
   headerIcon: { color: '#FFF', fontSize: 24, padding: 5 },
   headerTitle: { color: '#FFF', fontSize: 18, fontWeight: '700' },
-  modelBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#16161A', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 24, maxWidth: 225, borderWidth: 1, borderColor: '#2E2E36' },
+  modelBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#18181E', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 24, maxWidth: 235, borderWidth: 1, borderColor: '#343440' },
   liveDot: { width: 7, height: 7, borderRadius: 4, marginRight: 8 },
   modelBtnText: { color: '#FFF', fontSize: 13, fontWeight: '600', flexShrink: 1 },
-  modelBtnChevron: { color: '#999', fontSize: 12, marginLeft: 6 },
-  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end' },
-  sheetContainer: { backgroundColor: '#111114', borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderColor: '#27272C', height: '78%', paddingTop: 10 },
+  modelBtnChevron: { color: '#AAA', fontSize: 12, marginLeft: 6 },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end', alignItems: 'center' },
+  sheetContainer: { backgroundColor: '#111114', borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderColor: '#27272C', height: '78%', width: '100%', maxWidth: 640, paddingTop: 10 },
   sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#3A3A40', alignSelf: 'center', marginBottom: 12, flexShrink: 0 },
   sheetHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 12, flexShrink: 0 },
   sheetTitle: { color: '#FFF', fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
@@ -835,7 +862,7 @@ const styles = StyleSheet.create({
   freeBadgeText: { color: '#4ADE80', fontSize: 10, fontWeight: '800' },
   checkmark: { color: '#4A90E2', fontSize: 15, fontWeight: 'bold', marginLeft: 4 },
   menuOverlay: { flex: 1, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)' },
-  menuContent: { width: '80%', backgroundColor: '#0A0A0A', padding: 20, paddingTop: 50, borderRightWidth: 1, borderRightColor: '#222' },
+  menuContent: { width: '80%', maxWidth: 320, backgroundColor: '#0A0A0A', padding: 20, paddingTop: 50, borderRightWidth: 1, borderRightColor: '#222' },
   menuCloseArea: { flex: 1 }, 
   newChatBtn: { backgroundColor: '#FFF', paddingVertical: 14, borderRadius: 100, alignItems: 'center', marginBottom: 25 },
   newChatBtnText: { color: '#000', fontSize: 16, fontWeight: '800' },
@@ -852,13 +879,13 @@ const styles = StyleSheet.create({
   settingsRowText: { color: '#FFF', fontSize: 16 },
   settingsContent: { padding: 20 },
   sectionLabel: { color: '#888', fontSize: 12, fontWeight: '800', letterSpacing: 1.5, marginBottom: 8 },
-  helperText: { color: '#666', fontSize: 13, marginBottom: 12, lineHeight: 18 },
+  helperText: { color: '#777', fontSize: 13, marginBottom: 12, lineHeight: 18 },
   keyInput: { backgroundColor: '#111', color: '#FFF', fontSize: 14, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#2C2C34', marginBottom: 12 },
   linkButton: { backgroundColor: '#1C1C1E', paddingVertical: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
   linkButtonText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
   contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#2C2C34', textAlignVertical: 'top' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
-  noticeCard: { backgroundColor: '#141416', width: '100%', borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
+  noticeCard: { backgroundColor: '#141416', width: '100%', maxWidth: 400, borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
   noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
   noticeBody: { color: '#AAA', fontSize: 14, lineHeight: 20, marginBottom: 18 },
   noticeBtnPrimary: { backgroundColor: '#FFF', paddingVertical: 13, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
@@ -873,16 +900,23 @@ const styles = StyleSheet.create({
   noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
   noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
 
-  // ELEVATED EMPTY STATE
-  emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 10 },
-  heroOrb: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#131318', borderWidth: 1, borderColor: '#2C2C35', justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
-  emptyLogo: { fontSize: 28, color: '#FFF' },
-  heroBrand: { color: '#FFF', fontSize: 28, fontWeight: '900', letterSpacing: -0.8, marginBottom: 4 },
-  heroTagline: { color: '#6B6B76', fontSize: 12, fontWeight: '600', letterSpacing: 0.4, marginBottom: 18 },
-  emptyChatText: { color: '#999', fontSize: 16, fontWeight: '500', marginBottom: 18 },
-  starterGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, maxWidth: 340 },
-  starterChip: { backgroundColor: '#16161B', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: '#2C2C35' },
-  starterChipText: { color: '#DDD', fontSize: 13, fontWeight: '600' },
+  // RESPONSIVE EMPTY HERO + FACTUAL TRUST SIGNALS
+  chatScrollContent: { padding: 20, flexGrow: 1, justifyContent: 'flex-end' },
+  emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 20 },
+  heroOrb: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#14141A', borderWidth: 1, borderColor: '#343440', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+  emptyLogo: { fontSize: 30, color: '#FFF' },
+  heroBrand: { color: '#FFF', fontSize: 34, fontWeight: '900', letterSpacing: -1, marginBottom: 6 },
+  emptyChatText: { color: '#CCC', fontSize: 16, fontWeight: '500', marginBottom: 14, textAlign: 'center' },
+  trustStrip: { alignItems: 'center', backgroundColor: '#0E0E12', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: '#22222A', marginBottom: 18 },
+  trustText: { color: '#9CC2F7', fontSize: 12, fontWeight: '700', letterSpacing: 0.3, textAlign: 'center', marginBottom: 3 },
+  trustSub: { color: '#777784', fontSize: 11, fontWeight: '500', textAlign: 'center' },
+  heroPrimaryCta: { backgroundColor: '#FFF', paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, marginBottom: 20 },
+  heroPrimaryCtaText: { color: '#000', fontSize: 14, fontWeight: '800' },
+  starterGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, width: '100%', maxWidth: 560 },
+  starterCard: { backgroundColor: '#16161C', padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#30303C', width: '47%', minWidth: 150 },
+  starterIcon: { color: '#4A90E2', fontSize: 15, fontWeight: '800', marginBottom: 6 },
+  starterTitle: { color: '#FFF', fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  starterSub: { color: '#888', fontSize: 11 },
 
   thinkingCard: { alignSelf: 'flex-start', backgroundColor: '#121215', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, borderWidth: 1, borderColor: '#222228', marginVertical: 8 },
   thinkingText: { color: '#9CC2F7', fontSize: 13, fontWeight: '600' },
@@ -919,13 +953,13 @@ const styles = StyleSheet.create({
   removeAttBtn: { padding: 4 },
   removeAttText: { color: '#888', fontSize: 14, fontWeight: 'bold' },
 
-  // HIGHER CONTRAST INPUT BAR AFFORDANCE
-  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingBottom: 20, backgroundColor: '#000', borderTopWidth: 1, borderTopColor: '#1A1A20' },
-  attachBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#202027', justifyContent: 'center', alignItems: 'center', marginRight: 6, borderWidth: 1, borderColor: '#363642' },
+  inputOuter: { borderTopWidth: 1, borderTopColor: '#1C1C24', backgroundColor: '#000' },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingBottom: 20 },
+  attachBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#22222A', justifyContent: 'center', alignItems: 'center', marginRight: 6, borderWidth: 1, borderColor: '#3E3E4A' },
   webBtnActive: { backgroundColor: '#163052', borderColor: '#4A90E2' },
   attachTxt: { fontSize: 17 },
-  input: { flex: 1, backgroundColor: '#1C1C22', color: '#FFF', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#34343E' },
+  input: { flex: 1, backgroundColor: '#1D1D24', color: '#FFF', paddingHorizontal: 18, paddingVertical: 13, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#3E3E4C' },
   sendBtn: { marginLeft: 8, backgroundColor: '#FFF', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-  sendBtnIdle: { backgroundColor: '#24242C', borderWidth: 1, borderColor: '#363642' },
+  sendBtnIdle: { backgroundColor: '#2A2A34', borderWidth: 1, borderColor: '#444452' },
   sendTxt: { fontSize: 22, fontWeight: 'bold' }
 });
