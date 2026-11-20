@@ -205,7 +205,7 @@ const EmptyHero = ({ onSelectPrompt, onOpenSettings, hasKey }) => {
       <Animated.View style={[styles.heroOrb, { opacity: pulse, transform: [{ scale }] }]}>
         <Text style={styles.emptyLogo}>✧</Text>
       </Animated.View>
-      <Text style={styles.heroBrand}>Tessarc</Text>
+      <Text style={styles.heroBrand}>Tessera</Text>
       <Text style={styles.emptyChatText}>One workspace for every frontier AI.</Text>
 
       <View style={styles.trustStrip}>
@@ -327,9 +327,9 @@ export default function App() {
   const listFade = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Fix browser tab title from 'actual-chatbot' to 'Tessarc'
+    // Expo web sets the tab title from app.json; override it with the full product title
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      document.title = 'Tessarc — Multi-Model AI Workspace';
+      document.title = 'Tessera — Multi-Model AI Workspace';
     }
 
     (async () => {
@@ -438,7 +438,7 @@ export default function App() {
 
   const handlePickMedia = () => {
     setMediaNotice('');
-    if (typeof document === 'undefined') { setMediaNotice('⚠️ Media attachments work on tessarc.vercel.app web.'); return; }
+    if (typeof document === 'undefined') { setMediaNotice('⚠️ Media attachments work on tessera-seven-blond.vercel.app web.'); return; }
     const input = document.createElement('input');
     input.type = 'file'; input.accept = 'image/*,video/*';
     input.onchange = async (e) => {
@@ -491,7 +491,7 @@ export default function App() {
 
     const attemptFetch = async (msgsToSend, useWebPlugin) => {
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
-      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. When creating files/code, put the filename in the code header like \`\`\`lua:speed.lua. NEVER invent random stock photo URLs or paste raw URLs in paragraphs.\nLIVE TOOLS: If asked for current weather/forecast in a city and you don't already have it, reply ONLY with: [[WEATHER:CityName]]. If asked for factual lookups you aren't sure about, reply ONLY with: [[SEARCH:query]].`;
+      let systemPrompt = `You are Tessera, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. When creating files/code, put the filename in the code header like \`\`\`lua:speed.lua. NEVER invent random stock photo URLs or paste raw URLs in paragraphs.\nLIVE TOOLS: If asked for current weather/forecast in a city and you don't already have it, reply ONLY with: [[WEATHER:CityName]]. If asked for factual lookups you aren't sure about, reply ONLY with: [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       if (isClaudeModel && anthropicKey.trim()) {
@@ -520,7 +520,7 @@ export default function App() {
 
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${apiKey.trim() || anthropicKey.trim()}`, "Content-Type": "application/json", "HTTP-Referer": "https://tessarc.vercel.app", "X-Title": "Tessarc" },
+        headers: { "Authorization": `Bearer ${apiKey.trim() || anthropicKey.trim()}`, "Content-Type": "application/json", "HTTP-Referer": "https://tessera-seven-blond.vercel.app", "X-Title": "Tessera" },
         body: JSON.stringify(body)
       });
       const data = await res.json().catch(() => ({}));
@@ -594,11 +594,11 @@ export default function App() {
         {parts.map((part, index) => {
           if (part.startsWith('```') && part.endsWith('```')) {
             const firstBreak = part.indexOf('\n');
-            let lang = 'txt', filename = 'tessarc-file.txt', code = '';
+            let lang = 'txt', filename = 'tessera-file.txt', code = '';
             if (firstBreak !== -1) {
               const [rawLang, rawFile] = part.slice(3, firstBreak).trim().split(':');
               lang = (rawLang || 'txt').trim().toLowerCase();
-              filename = rawFile ? rawFile.trim() : `tessarc-file.${EXT_MAP[lang] || 'txt'}`;
+              filename = rawFile ? rawFile.trim() : `tessera-file.${EXT_MAP[lang] || 'txt'}`;
               code = part.slice(firstBreak + 1, -3).trim();
             } else { code = part.slice(3, -3).trim(); }
             return <CodeBlock key={index} code={code} filename={filename} language={lang} />;
@@ -812,7 +812,7 @@ export default function App() {
             <TouchableOpacity style={[styles.attachBtn, webSearchOn && styles.webBtnActive]} onPress={() => setWebSearchOn(!webSearchOn)}>
               <Text style={styles.attachTxt}>🌐</Text>
             </TouchableOpacity>
-            <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : "Ask Tessarc anything..."} placeholderTextColor="#999" />
+            <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : "Ask Tessera anything..."} placeholderTextColor="#999" />
             <TouchableOpacity style={[styles.sendBtn, !canSend && styles.sendBtnIdle, editingIndex !== null && { backgroundColor: '#4A90E2' }]} onPress={sendMessage} disabled={!canSend}>
               <Text style={[styles.sendTxt, { color: editingIndex !== null ? '#FFF' : (canSend ? '#000' : '#BBB') }]}>{editingIndex !== null ? '✓' : '↑'}</Text>
             </TouchableOpacity>
