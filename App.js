@@ -23,10 +23,7 @@ const DEFAULT_PROVIDERS = [
     models: [
       { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', isVision: true },
       { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', isVision: true },
-      { id: 'google/gemini-2.0-flash-001', name: 'Gemini 2.0 Flash', isVision: true },
-      { id: 'google/gemini-2.0-flash-lite-001', name: 'Gemini 2.0 Flash Lite', isVision: true },
-      { id: 'google/gemma-4-26b-a4b-it:free', name: 'Gemma 4 26B', isVision: true, free: true },
-      { id: 'google/gemma-2-9b-it:free', name: 'Gemma 2 9B', free: true }
+      { id: 'google/gemma-4-26b-a4b-it:free', name: 'Gemma 4 26B', isVision: true, free: true }
     ]
   },
   {
@@ -34,8 +31,7 @@ const DEFAULT_PROVIDERS = [
     name: 'OpenAI',
     models: [
       { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', isVision: true },
-      { id: 'openai/gpt-4o', name: 'GPT-4o', isVision: true },
-      { id: 'openai/o3-mini', name: 'o3-mini' }
+      { id: 'openai/gpt-4o', name: 'GPT-4o', isVision: true }
     ]
   },
   {
@@ -48,10 +44,28 @@ const DEFAULT_PROVIDERS = [
   }
 ];
 
-const EXT_MAP = {
-  javascript: 'js', js: 'js', jsx: 'jsx', ts: 'ts', typescript: 'ts',
-  python: 'py', py: 'py', lua: 'lua', html: 'html', css: 'css',
-  json: 'json', sql: 'sql', bash: 'sh', sh: 'sh', markdown: 'md', md: 'md', txt: 'txt'
+const EXT_MAP = { javascript: 'js', js: 'js', jsx: 'jsx', ts: 'ts', python: 'py', py: 'py', lua: 'lua', html: 'html', css: 'css', json: 'json', sql: 'sql', sh: 'sh', md: 'md', txt: 'txt' };
+const WMO = { 0:'Clear sky', 1:'Mainly clear', 2:'Partly cloudy', 3:'Overcast', 45:'Foggy', 48:'Foggy', 51:'Light drizzle', 53:'Drizzle', 61:'Light rain', 63:'Rain', 65:'Heavy rain', 71:'Light snow', 73:'Snow', 80:'Rain showers', 95:'Thunderstorm' };
+
+const fetchLiveWeather = async (rawCity) => {
+  try {
+    const clean = rawCity.split(',')[0].trim();
+    let geo = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(rawCity)}&count=1&format=json`).then(r => r.json());
+    if (!geo?.results?.length) geo = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(clean)}&count=1&format=json`).then(r => r.json());
+    if (!geo?.results?.length) return `Location "${rawCity}" not found.`;
+    const loc = geo.results[0];
+    const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto`).then(r => r.json());
+    const c = w.current;
+    return `LIVE WEATHER for ${loc.name}, ${loc.country}: ${c.temperature_2m}°C (feels like ${c.apparent_temperature}°C), ${WMO[c.weather_code] || 'Variable'}, Humidity ${c.relative_humidity_2m}%, Wind ${c.wind_speed_10m} km/h. Today High ${w.daily.temperature_2m_max[0]}°C / Low ${w.daily.temperature_2m_min[0]}°C.`;
+  } catch { return 'Weather service temporarily unreachable.'; }
+};
+
+const fetchWikiSearch = async (query) => {
+  try {
+    const data = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&origin=*`).then(r => r.json());
+    const hits = (data?.query?.search || []).slice(0, 3);
+    return hits.length ? hits.map(h => `- ${h.title}: ${h.snippet.replace(/<[^>]*>/g, '')}`).join('\n') : 'No search results found.';
+  } catch { return 'Search service unreachable.'; }
 };
 
 const downloadFile = (filename, content) => {
@@ -59,11 +73,8 @@ const downloadFile = (filename, content) => {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 };
 
@@ -74,8 +85,7 @@ const compressImage = (file) => new Promise((resolve, reject) => {
     img.onload = () => {
       const scale = Math.min(1, 800 / Math.max(img.width, img.height));
       const canvas = document.createElement('canvas');
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
+      canvas.width = img.width * scale; canvas.height = img.height * scale;
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       resolve(canvas.toDataURL('image/jpeg', 0.65));
     };
@@ -88,30 +98,20 @@ const compressImage = (file) => new Promise((resolve, reject) => {
 const processVideo = (file) => new Promise((resolve, reject) => {
   const video = document.createElement('video');
   const url = URL.createObjectURL(file);
-  video.preload = 'metadata';
-  video.muted = true;
-  video.playsInline = true;
-
+  video.preload = 'metadata'; video.muted = true; video.playsInline = true;
   video.onloadedmetadata = async () => {
-    if (video.duration > 70) {
-      URL.revokeObjectURL(url);
-      return reject(new Error(`Video is ${Math.ceil(video.duration)}s. Max allowed is 70s.`));
-    }
+    if (video.duration > 70) { URL.revokeObjectURL(url); return reject(new Error(`Video is ${Math.ceil(video.duration)}s. Max allowed is 70s.`)); }
     const stamps = [0.15, 0.4, 0.65, 0.88].map(p => Math.min(Math.max(0.1, video.duration - 0.1), video.duration * p));
-    const frames = [];
-    const canvas = document.createElement('canvas');
-
+    const frames = [], canvas = document.createElement('canvas');
     for (const time of stamps) {
       await new Promise((res) => {
         const timer = setTimeout(res, 1500);
         video.onseeked = () => {
           clearTimeout(timer);
           const scale = Math.min(1, 640 / Math.max(video.videoWidth || 640, video.videoHeight || 480));
-          canvas.width = (video.videoWidth || 640) * scale;
-          canvas.height = (video.videoHeight || 480) * scale;
+          canvas.width = (video.videoWidth || 640) * scale; canvas.height = (video.videoHeight || 480) * scale;
           canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-          frames.push(canvas.toDataURL('image/jpeg', 0.6));
-          res();
+          frames.push(canvas.toDataURL('image/jpeg', 0.6)); res();
         };
         video.currentTime = time;
       });
@@ -120,8 +120,7 @@ const processVideo = (file) => new Promise((resolve, reject) => {
     resolve({ frames, duration: Math.round(video.duration) });
   };
   video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Unsupported video. Try MP4.')); };
-  video.src = url;
-  video.load();
+  video.src = url; video.load();
 });
 
 const AnimatedBubble = ({ children, style }) => {
@@ -136,7 +135,7 @@ const AnimatedBubble = ({ children, style }) => {
   return <Animated.View style={[style, { opacity: fade, transform: [{ translateY: lift }] }]}>{children}</Animated.View>;
 };
 
-const ThinkingIndicator = () => {
+const ThinkingIndicator = ({ text }) => {
   const fadeAnim = useRef(new Animated.Value(0.3)).current;
   useEffect(() => {
     Animated.loop(Animated.sequence([
@@ -146,7 +145,7 @@ const ThinkingIndicator = () => {
   }, []);
   return (
     <View style={styles.aiMsg}>
-      <Animated.Text style={[styles.msgText, { opacity: fadeAnim, color: '#888', fontStyle: 'italic' }]}>✧ Synthesizing...</Animated.Text>
+      <Animated.Text style={[styles.msgText, { opacity: fadeAnim, color: '#888', fontStyle: 'italic' }]}>{text || '✧ Synthesizing...'}</Animated.Text>
     </View>
   );
 };
@@ -193,6 +192,8 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [editingIndex, setEditingIndex] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [thinkingText, setThinkingText] = useState('✧ Synthesizing...');
+  const [webSearchOn, setWebSearchOn] = useState(false);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_PROVIDERS[0].models[0]); 
 
   const [attachments, setAttachments] = useState([]);
@@ -267,10 +268,8 @@ export default function App() {
   const closeMenu = () => { Animated.timing(slideAnim, { toValue: -350, duration: 220, useNativeDriver: true }).start(() => setIsModalVisible(false)); };
 
   const openModelSheet = () => {
-    setModelSearch('');
-    setShowModels(true);
-    sheetY.setValue(500);
-    sheetFade.setValue(0);
+    setModelSearch(''); setShowModels(true);
+    sheetY.setValue(500); sheetFade.setValue(0);
     Animated.parallel([
       Animated.timing(sheetFade, { toValue: 1, duration: 220, useNativeDriver: true }),
       Animated.spring(sheetY, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true })
@@ -285,8 +284,7 @@ export default function App() {
   };
 
   const switchCompanyTab = (id) => {
-    setSelectedCompanyId(id);
-    listFade.setValue(0.3);
+    setSelectedCompanyId(id); listFade.setValue(0.3);
     Animated.timing(listFade, { toValue: 1, duration: 200, useNativeDriver: true }).start();
   };
 
@@ -303,13 +301,8 @@ export default function App() {
   const startEdit = (index) => {
     const target = messages[index];
     if (!target || target.role !== 'user') return;
-    setEditingIndex(index);
-    setInputText(target.content || '');
-    if (target.images && target.images.length > 0) {
-      setAttachments(target.images.map((uri, i) => ({ type: 'image', preview: uri, frames: [uri], label: `Media ${i + 1}` })));
-    } else {
-      setAttachments([]);
-    }
+    setEditingIndex(index); setInputText(target.content || '');
+    setAttachments(target.images?.length ? target.images.map((uri, i) => ({ type: 'image', preview: uri, frames: [uri], label: `Media ${i + 1}` })) : []);
   };
 
   const cancelEdit = () => { setEditingIndex(null); setInputText(''); setAttachments([]); };
@@ -318,8 +311,7 @@ export default function App() {
     setMediaNotice('');
     if (typeof document === 'undefined') { setMediaNotice('⚠️ Media attachments work on tessarc.vercel.app web.'); return; }
     const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*,video/*';
+    input.type = 'file'; input.accept = 'image/*,video/*';
     input.onchange = async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -354,10 +346,8 @@ export default function App() {
     const baseHistory = editingIndex !== null ? messages.slice(0, editingIndex) : messages;
     const chatHistory = [...baseHistory, newUserMsg];
 
-    setMessages(chatHistory);
-    setInputText('');
-    setAttachments([]);
-    setEditingIndex(null);
+    setMessages(chatHistory); setInputText(''); setAttachments([]); setEditingIndex(null);
+    setThinkingText(webSearchOn ? '✧ Searching live web...' : '✧ Synthesizing...');
     setIsLoading(true);
 
     const isClaudeModel = selectedModel.id.includes('claude');
@@ -370,12 +360,13 @@ export default function App() {
       return setIsLoading(false);
     }
 
-    const attemptFetch = async () => {
-      let systemPrompt = `You are Tessarc, a brilliant, witty, charismatic AI assistant powered by ${selectedModel.name}. Use emojis naturally 😂✨. When creating files or writing code, ALWAYS put the filename in the code header like \`\`\`lua:speed.lua or \`\`\`html:index.html so the user can download it. Do not use markdown asterisks (**) in regular text.`;
-      if (userContext.trim() !== '') systemPrompt += ` User Context: ${userContext}`;
+    const attemptFetch = async (msgsToSend, useWebPlugin) => {
+      const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
+      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Use emojis naturally 😂✨. When creating files/code, put the filename in the code header like \`\`\`lua:speed.lua. Do not use markdown asterisks (**) in regular text.\nLIVE TOOLS: If asked for current weather/forecast in a city and you don't already have it in the conversation, reply ONLY with: [[WEATHER:CityName]]. If asked for factual lookups you aren't sure about (and Web Search isn't already injected), reply ONLY with: [[SEARCH:query]].`;
+      if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       if (isClaudeModel && anthropicKey.trim()) {
-        const formattedMsgs = chatHistory.map(m => m.images?.length ? ({
+        const formattedMsgs = msgsToSend.map(m => m.images?.length ? ({
           role: m.role,
           content: [...m.images.map(url => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: url.split(',')[1] } })), { type: 'text', text: m.content }]
         }) : ({ role: m.role, content: m.content }));
@@ -390,15 +381,18 @@ export default function App() {
         return data.content[0].text;
       }
 
-      const openRouterMsgs = chatHistory.map(m => m.images?.length ? ({
+      const openRouterMsgs = msgsToSend.map(m => m.images?.length ? ({
         role: m.role,
         content: [{ type: 'text', text: m.content }, ...m.images.map(url => ({ type: 'image_url', image_url: { url } }))]
       }) : ({ role: m.role, content: m.content }));
 
+      const body = { model: selectedModel.id, messages: [{ role: "system", content: systemPrompt }, ...openRouterMsgs] };
+      if (useWebPlugin) body.plugins = [{ id: 'web', max_results: 3 }];
+
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { "Authorization": `Bearer ${apiKey.trim() || anthropicKey.trim()}`, "Content-Type": "application/json", "HTTP-Referer": "https://tessarc.vercel.app", "X-Title": "Tessarc" },
-        body: JSON.stringify({ model: selectedModel.id, messages: [{ role: "system", content: systemPrompt }, ...openRouterMsgs] })
+        body: JSON.stringify(body)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) throw new Error(data?.error?.message || 'API Error');
@@ -406,7 +400,31 @@ export default function App() {
     };
 
     try {
-      const aiReply = await attemptFetch();
+      let aiReply;
+      try {
+        aiReply = await attemptFetch(chatHistory, webSearchOn);
+      } catch (webErr) {
+        if (webSearchOn && (webErr.message.includes('402') || webErr.message.toLowerCase().includes('credit'))) {
+          setThinkingText('✧ Switching to free lookup...');
+          aiReply = await attemptFetch(chatHistory, false);
+        } else { throw webErr; }
+      }
+
+      const weatherMatch = aiReply.match(/\[\[WEATHER:(.*?)\]\]/i);
+      const searchMatch = aiReply.match(/\[\[SEARCH:(.*?)\]\]/i);
+
+      if (weatherMatch) {
+        const city = weatherMatch[1].trim();
+        setThinkingText(`✧ Checking live weather in ${city}...`);
+        const liveData = await fetchLiveWeather(city);
+        aiReply = await attemptFetch([...chatHistory, { role: 'assistant', content: aiReply }, { role: 'user', content: `[SYSTEM LIVE DATA - DO NOT OUTPUT TAGS]\n${liveData}\nAnswer the user naturally with this live weather!` }], false);
+      } else if (searchMatch) {
+        const q = searchMatch[1].trim();
+        setThinkingText(`✧ Looking up "${q}"...`);
+        const wikiData = await fetchWikiSearch(q);
+        aiReply = await attemptFetch([...chatHistory, { role: 'assistant', content: aiReply }, { role: 'user', content: `[SYSTEM SEARCH DATA - DO NOT OUTPUT TAGS]\n${wikiData}\nAnswer the user naturally with this info!` }], false);
+      }
+
       const finalHistory = [...chatHistory, { role: 'assistant', content: aiReply }];
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
@@ -415,6 +433,7 @@ export default function App() {
       setMessages([...chatHistory, { role: 'assistant', content: `⚠️ Error: ${e.message}${tip}` }]);
     } finally {
       setIsLoading(false);
+      setThinkingText('✧ Synthesizing...');
     }
   };
 
@@ -520,7 +539,6 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* ANIMATED DYNAMIC MODEL BOTTOM SHEET (FIXED PILLS HEIGHT) */}
       <Modal visible={showModels} transparent animationType="none" onRequestClose={closeModelSheet}>
         <Animated.View style={[styles.sheetBackdrop, { opacity: sheetFade }]}>
           <Pressable style={{ flex: 1 }} onPress={closeModelSheet} />
@@ -529,22 +547,11 @@ export default function App() {
             <View style={styles.sheetHeaderRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={styles.sheetTitle}>Select Model</Text>
-                {isLiveSynced && (
-                  <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>● Live</Text></View>
-                )}
+                {isLiveSynced && <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>● Live</Text></View>}
               </View>
               <TouchableOpacity onPress={closeModelSheet} style={styles.sheetClosePill}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity>
             </View>
-
-            <TextInput
-              style={styles.sheetSearchInput}
-              value={modelSearch}
-              onChangeText={setModelSearch}
-              placeholder="🔍 Search all models (hydrogen, gemini, claude)..."
-              placeholderTextColor="#666"
-              autoCapitalize="none"
-            />
-
+            <TextInput style={styles.sheetSearchInput} value={modelSearch} onChangeText={setModelSearch} placeholder="🔍 Search all models (hydrogen, gemini, claude)..." placeholderTextColor="#666" autoCapitalize="none" />
             {!modelSearch.trim() && (
               <View style={styles.companyTabsWrap}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}>
@@ -559,7 +566,6 @@ export default function App() {
                 </ScrollView>
               </View>
             )}
-
             <Animated.ScrollView style={[styles.sheetList, { opacity: listFade }]} showsVerticalScrollIndicator={false}>
               {displayedModels.length === 0 ? (
                 <Text style={styles.emptySearchText}>No models found for "{modelSearch}"</Text>
@@ -567,12 +573,7 @@ export default function App() {
                 displayedModels.map((m) => {
                   const isSelected = selectedModel.id === m.id;
                   return (
-                    <TouchableOpacity
-                      key={m.id}
-                      style={[styles.modelCard, isSelected && styles.modelCardActive]}
-                      onPress={() => { setSelectedModel(m); closeModelSheet(); }}
-                      activeOpacity={0.75}
-                    >
+                    <TouchableOpacity key={m.id} style={[styles.modelCard, isSelected && styles.modelCardActive]} onPress={() => { setSelectedModel(m); closeModelSheet(); }} activeOpacity={0.75}>
                       <View style={{ flex: 1, marginRight: 10 }}>
                         <Text style={[styles.modelCardTitle, isSelected && { color: '#FFF' }]} numberOfLines={1}>{m.name}</Text>
                         <Text style={styles.modelCardSub} numberOfLines={1}>{m.id}</Text>
@@ -617,17 +618,13 @@ export default function App() {
           data={isLoading ? [...messages, { role: 'thinking' }] : messages}
           keyExtractor={(_, i) => i.toString()}
           renderItem={({ item, index }) => {
-            if (item.role === 'thinking') return <ThinkingIndicator />;
+            if (item.role === 'thinking') return <ThinkingIndicator text={thinkingText} />;
             const isUser = item.role === 'user';
             return (
               <AnimatedBubble style={isUser ? styles.userMsgWrap : styles.aiMsg}>
-                <View style={isUser ? [styles.userMsg, editingIndex === index && styles.editingBubble] : null}>
-                  {renderMessageContent(item)}
-                </View>
+                <View style={isUser ? [styles.userMsg, editingIndex === index && styles.editingBubble] : null}>{renderMessageContent(item)}</View>
                 {isUser && !isLoading && (
-                  <TouchableOpacity onPress={() => startEdit(index)} style={styles.editTrigger}>
-                    <Text style={styles.editTriggerText}>✎ Edit</Text>
-                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => startEdit(index)} style={styles.editTrigger}><Text style={styles.editTriggerText}>✎ Edit</Text></TouchableOpacity>
                 )}
               </AnimatedBubble>
             );
@@ -651,9 +648,7 @@ export default function App() {
               <View key={idx} style={styles.previewCard}>
                 <Image source={{ uri: att.preview }} style={styles.previewThumb} />
                 <Text style={styles.previewLabel}>{att.label}</Text>
-                <TouchableOpacity onPress={() => setAttachments(prev => prev.filter((_, i) => i !== idx))} style={styles.removeAttBtn}>
-                  <Text style={styles.removeAttText}>✕</Text>
-                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setAttachments(prev => prev.filter((_, i) => i !== idx))} style={styles.removeAttBtn}><Text style={styles.removeAttText}>✕</Text></TouchableOpacity>
               </View>
             ))}
           </ScrollView>
@@ -661,6 +656,9 @@ export default function App() {
 
         <View style={styles.inputContainer}>
           <TouchableOpacity style={styles.attachBtn} onPress={handlePickMedia}><Text style={styles.attachTxt}>📎</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.attachBtn, webSearchOn && styles.webBtnActive]} onPress={() => setWebSearchOn(!webSearchOn)}>
+            <Text style={styles.attachTxt}>🌐</Text>
+          </TouchableOpacity>
           <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : "Message..."} placeholderTextColor="#666" />
           <TouchableOpacity style={[styles.sendBtn, editingIndex !== null && { backgroundColor: '#4A90E2' }]} onPress={sendMessage} disabled={isLoading}>
             <Text style={[styles.sendTxt, { opacity: isLoading ? 0.3 : 1, color: editingIndex !== null ? '#FFF' : '#000' }]}>{editingIndex !== null ? '✓' : '↑'}</Text>
@@ -680,8 +678,6 @@ const styles = StyleSheet.create({
   liveDot: { width: 7, height: 7, borderRadius: 4, marginRight: 8 },
   modelBtnText: { color: '#FFF', fontSize: 13, fontWeight: '600', flexShrink: 1 },
   modelBtnChevron: { color: '#777', fontSize: 12, marginLeft: 6 },
-
-  // FIXED: height & flexShrink so top controls never get squeezed!
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end' },
   sheetContainer: { backgroundColor: '#111114', borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderColor: '#27272C', height: '78%', paddingTop: 10 },
   sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#3A3A40', alignSelf: 'center', marginBottom: 12, flexShrink: 0 },
@@ -709,7 +705,6 @@ const styles = StyleSheet.create({
   freeBadge: { backgroundColor: '#123321', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
   freeBadgeText: { color: '#4ADE80', fontSize: 10, fontWeight: '800' },
   checkmark: { color: '#4A90E2', fontSize: 15, fontWeight: 'bold', marginLeft: 4 },
-
   menuOverlay: { flex: 1, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)' },
   menuContent: { width: '80%', backgroundColor: '#0A0A0A', padding: 20, paddingTop: 50, borderRightWidth: 1, borderRightColor: '#222' },
   menuCloseArea: { flex: 1 }, 
@@ -733,7 +728,6 @@ const styles = StyleSheet.create({
   linkButton: { backgroundColor: '#1C1C1E', paddingVertical: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
   linkButtonText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
   contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#222', textAlignVertical: 'top' },
-
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
   noticeCard: { backgroundColor: '#141416', width: '100%', borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
   noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
@@ -749,7 +743,6 @@ const styles = StyleSheet.create({
   checkboxLabel: { color: '#888', fontSize: 13 },
   noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
   noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
-
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyLogo: { fontSize: 40, color: '#333' },
   emptyChatText: { color: '#555', fontSize: 18 },
@@ -780,9 +773,10 @@ const styles = StyleSheet.create({
   removeAttBtn: { padding: 4 },
   removeAttText: { color: '#888', fontSize: 14, fontWeight: 'bold' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingBottom: 20, backgroundColor: '#000', borderTopWidth: 1, borderTopColor: '#111' },
-  attachBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#161618', justifyContent: 'center', alignItems: 'center', marginRight: 8, borderWidth: 1, borderColor: '#252528' },
-  attachTxt: { fontSize: 18 },
-  input: { flex: 1, backgroundColor: '#1A1A1A', color: '#FFF', paddingHorizontal: 18, paddingVertical: 13, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#222' },
-  sendBtn: { marginLeft: 8, backgroundColor: '#FFF', width: 46, height: 46, borderRadius: 23, justifyContent: 'center', alignItems: 'center' },
+  attachBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#161618', justifyContent: 'center', alignItems: 'center', marginRight: 6, borderWidth: 1, borderColor: '#252528' },
+  webBtnActive: { backgroundColor: '#132743', borderColor: '#4A90E2' },
+  attachTxt: { fontSize: 16 },
+  input: { flex: 1, backgroundColor: '#1A1A1A', color: '#FFF', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#222' },
+  sendBtn: { marginLeft: 8, backgroundColor: '#FFF', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   sendTxt: { color: '#000', fontSize: 22, fontWeight: 'bold' }
 });
