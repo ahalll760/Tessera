@@ -52,20 +52,53 @@ const fetchLiveWeather = async (rawCity) => {
     const clean = rawCity.split(',')[0].trim();
     let geo = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(rawCity)}&count=1&format=json`).then(r => r.json());
     if (!geo?.results?.length) geo = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(clean)}&count=1&format=json`).then(r => r.json());
-    if (!geo?.results?.length) return `Location "${rawCity}" not found.`;
+    if (!geo?.results?.length) return { text: `Location "${rawCity}" not found.`, sources: [] };
     const loc = geo.results[0];
     const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto`).then(r => r.json());
     const c = w.current;
-    return `LIVE WEATHER for ${loc.name}, ${loc.country}: ${c.temperature_2m}°C (feels like ${c.apparent_temperature}°C), ${WMO[c.weather_code] || 'Variable'}, Humidity ${c.relative_humidity_2m}%, Wind ${c.wind_speed_10m} km/h. Today High ${w.daily.temperature_2m_max[0]}°C / Low ${w.daily.temperature_2m_min[0]}°C.`;
-  } catch { return 'Weather service temporarily unreachable.'; }
+    return {
+      text: `LIVE WEATHER for ${loc.name}, ${loc.country}: ${c.temperature_2m}°C (feels like ${c.apparent_temperature}°C), ${WMO[c.weather_code] || 'Variable'}, Humidity ${c.relative_humidity_2m}%, Wind ${c.wind_speed_10m} km/h. High ${w.daily.temperature_2m_max[0]}°C / Low ${w.daily.temperature_2m_min[0]}°C.`,
+      sources: [{ url: `https://open-meteo.com/`, domain: 'open-meteo.com', title: `Open-Meteo (${loc.name})` }]
+    };
+  } catch { return { text: 'Weather service temporarily unreachable.', sources: [] }; }
 };
 
 const fetchWikiSearch = async (query) => {
   try {
     const data = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&origin=*`).then(r => r.json());
     const hits = (data?.query?.search || []).slice(0, 3);
-    return hits.length ? hits.map(h => `- ${h.title}: ${h.snippet.replace(/<[^>]*>/g, '')}`).join('\n') : 'No search results found.';
-  } catch { return 'Search service unreachable.'; }
+    if (!hits.length) return { text: 'No search results found.', sources: [] };
+    return {
+      text: hits.map(h => `- ${h.title}: ${h.snippet.replace(/<[^>]*>/g, '')}`).join('\n'),
+      sources: hits.map(h => ({ url: `https://en.wikipedia.org/wiki/${encodeURIComponent(h.title.replace(/ /g, '_'))}`, domain: `en.wikipedia.org`, title: h.title }))
+    };
+  } catch { return { text: 'Search service unreachable.', sources: [] }; }
+};
+
+const cleanLinksAndExtractSources = (rawText, annotations = [], extraSources = []) => {
+  const sources = [...extraSources];
+  const addSource = (url, title) => {
+    if (!url || !url.startsWith('http')) return;
+    const cleanUrl = url.replace(/[),.;]+$/, '');
+    if (!sources.some(s => s.url === cleanUrl)) {
+      let domain = cleanUrl;
+      try { domain = new URL(cleanUrl).hostname.replace(/^www\./, ''); } catch {}
+      sources.push({ url: cleanUrl, domain, title: title || domain });
+    }
+  };
+
+  (annotations || []).forEach(a => { if (a?.url_citation?.url) addSource(a.url_citation.url, a.url_citation.title); });
+
+  const parts = (rawText || '').split(/(```[\s\S]*?```)/g);
+  const text = parts.map(part => {
+    if (part.startsWith('```')) return part;
+    let p = part.replace(/\(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)\)/g, (_, lbl, url) => { addSource(url, lbl); return ''; });
+    p = p.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, lbl, url) => { addSource(url, lbl); return lbl; });
+    p = p.replace(/(https?:\/\/[^\s]+)/g, (url) => { addSource(url); return ''; });
+    return p.replace(/[ \t]{2,}/g, ' ');
+  }).join('').trim();
+
+  return { text, sources };
 };
 
 const downloadFile = (filename, content) => {
@@ -135,17 +168,28 @@ const AnimatedBubble = ({ children, style }) => {
   return <Animated.View style={[style, { opacity: fade, transform: [{ translateY: lift }] }]}>{children}</Animated.View>;
 };
 
-const ThinkingIndicator = ({ text }) => {
-  const fadeAnim = useRef(new Animated.Value(0.3)).current;
+const ThinkingIndicator = ({ statusText, webActive }) => {
+  const fadeAnim = useRef(new Animated.Value(0.35)).current;
+  const [stepIdx, setStepIdx] = useState(0);
+  const webSteps = ['🌐 Querying web index...', '🌐 Visiting top websites...', '🌐 Reading live pages...', '✧ Synthesizing sources...'];
+
   useEffect(() => {
     Animated.loop(Animated.sequence([
       Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-      Animated.timing(fadeAnim, { toValue: 0.3, duration: 600, useNativeDriver: true })
+      Animated.timing(fadeAnim, { toValue: 0.35, duration: 600, useNativeDriver: true })
     ])).start();
   }, []);
+
+  useEffect(() => {
+    if (!webActive) return;
+    const interval = setInterval(() => setStepIdx(i => (i + 1) % webSteps.length), 1400);
+    return () => clearInterval(interval);
+  }, [webActive]);
+
+  const label = statusText || (webActive ? webSteps[stepIdx] : '✧ Synthesizing...');
   return (
-    <View style={styles.aiMsg}>
-      <Animated.Text style={[styles.msgText, { opacity: fadeAnim, color: '#888', fontStyle: 'italic' }]}>{text || '✧ Synthesizing...'}</Animated.Text>
+    <View style={styles.thinkingCard}>
+      <Animated.Text style={[styles.thinkingText, { opacity: fadeAnim }]}>{label}</Animated.Text>
     </View>
   );
 };
@@ -192,7 +236,7 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [editingIndex, setEditingIndex] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [thinkingText, setThinkingText] = useState('✧ Synthesizing...');
+  const [thinkingStatus, setThinkingStatus] = useState('');
   const [webSearchOn, setWebSearchOn] = useState(false);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_PROVIDERS[0].models[0]); 
 
@@ -268,8 +312,7 @@ export default function App() {
   const closeMenu = () => { Animated.timing(slideAnim, { toValue: -350, duration: 220, useNativeDriver: true }).start(() => setIsModalVisible(false)); };
 
   const openModelSheet = () => {
-    setModelSearch(''); setShowModels(true);
-    sheetY.setValue(500); sheetFade.setValue(0);
+    setModelSearch(''); setShowModels(true); sheetY.setValue(500); sheetFade.setValue(0);
     Animated.parallel([
       Animated.timing(sheetFade, { toValue: 1, duration: 220, useNativeDriver: true }),
       Animated.spring(sheetY, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true })
@@ -347,7 +390,7 @@ export default function App() {
     const chatHistory = [...baseHistory, newUserMsg];
 
     setMessages(chatHistory); setInputText(''); setAttachments([]); setEditingIndex(null);
-    setThinkingText(webSearchOn ? '✧ Searching live web...' : '✧ Synthesizing...');
+    setThinkingStatus('');
     setIsLoading(true);
 
     const isClaudeModel = selectedModel.id.includes('claude');
@@ -362,7 +405,7 @@ export default function App() {
 
     const attemptFetch = async (msgsToSend, useWebPlugin) => {
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
-      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Use emojis naturally 😂✨. When creating files/code, put the filename in the code header like \`\`\`lua:speed.lua. Do not use markdown asterisks (**) in regular text.\nLIVE TOOLS: If asked for current weather/forecast in a city and you don't already have it in the conversation, reply ONLY with: [[WEATHER:CityName]]. If asked for factual lookups you aren't sure about (and Web Search isn't already injected), reply ONLY with: [[SEARCH:query]].`;
+      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. When creating files/code, put the filename in the code header like \`\`\`lua:speed.lua. NEVER invent random stock photo URLs or paste raw URLs in paragraphs. Do not use markdown asterisks (**) in regular text.\nLIVE TOOLS: If asked for current weather/forecast in a city and you don't already have it, reply ONLY with: [[WEATHER:CityName]]. If asked for factual lookups you aren't sure about, reply ONLY with: [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       if (isClaudeModel && anthropicKey.trim()) {
@@ -378,7 +421,7 @@ export default function App() {
         });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data?.error?.message || 'Anthropic API Error');
-        return data.content[0].text;
+        return { raw: data.content[0].text, annotations: [] };
       }
 
       const openRouterMsgs = msgsToSend.map(m => m.images?.length ? ({
@@ -387,7 +430,8 @@ export default function App() {
       }) : ({ role: m.role, content: m.content }));
 
       const body = { model: selectedModel.id, messages: [{ role: "system", content: systemPrompt }, ...openRouterMsgs] };
-      if (useWebPlugin) body.plugins = [{ id: 'web', max_results: 3 }];
+      // Don't attach web search plugin if user sent personal photos/videos unless text specifically asks
+      if (useWebPlugin && allFrames.length === 0) body.plugins = [{ id: 'web', max_results: 3 }];
 
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
@@ -396,36 +440,42 @@ export default function App() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) throw new Error(data?.error?.message || 'API Error');
-      return data.choices[0].message.content;
+      return { raw: data.choices[0].message.content, annotations: data.choices[0].message.annotations || [] };
     };
 
     try {
-      let aiReply;
+      let result;
       try {
-        aiReply = await attemptFetch(chatHistory, webSearchOn);
+        result = await attemptFetch(chatHistory, webSearchOn);
       } catch (webErr) {
         if (webSearchOn && (webErr.message.includes('402') || webErr.message.toLowerCase().includes('credit'))) {
-          setThinkingText('✧ Switching to free lookup...');
-          aiReply = await attemptFetch(chatHistory, false);
+          setThinkingStatus('🌐 Switching to free web lookup...');
+          result = await attemptFetch(chatHistory, false);
         } else { throw webErr; }
       }
 
-      const weatherMatch = aiReply.match(/\[\[WEATHER:(.*?)\]\]/i);
-      const searchMatch = aiReply.match(/\[\[SEARCH:(.*?)\]\]/i);
+      let extraSources = [];
+      const weatherMatch = result.raw.match(/\[\[WEATHER:(.*?)\]\]/i);
+      const searchMatch = result.raw.match(/\[\[SEARCH:(.*?)\]\]/i);
 
       if (weatherMatch) {
         const city = weatherMatch[1].trim();
-        setThinkingText(`✧ Checking live weather in ${city}...`);
+        setThinkingStatus(`🌐 Visiting open-meteo.com (${city})...`);
         const liveData = await fetchLiveWeather(city);
-        aiReply = await attemptFetch([...chatHistory, { role: 'assistant', content: aiReply }, { role: 'user', content: `[SYSTEM LIVE DATA - DO NOT OUTPUT TAGS]\n${liveData}\nAnswer the user naturally with this live weather!` }], false);
+        extraSources = liveData.sources;
+        setThinkingStatus(`✧ Synthesizing forecast...`);
+        result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM LIVE DATA - DO NOT OUTPUT TAGS]\n${liveData.text}\nAnswer the user naturally with this live weather!` }], false);
       } else if (searchMatch) {
         const q = searchMatch[1].trim();
-        setThinkingText(`✧ Looking up "${q}"...`);
+        setThinkingStatus(`🌐 Visiting en.wikipedia.org (${q})...`);
         const wikiData = await fetchWikiSearch(q);
-        aiReply = await attemptFetch([...chatHistory, { role: 'assistant', content: aiReply }, { role: 'user', content: `[SYSTEM SEARCH DATA - DO NOT OUTPUT TAGS]\n${wikiData}\nAnswer the user naturally with this info!` }], false);
+        extraSources = wikiData.sources;
+        setThinkingStatus(`✧ Reading Wikipedia pages...`);
+        result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM SEARCH DATA - DO NOT OUTPUT TAGS]\n${wikiData.text}\nAnswer the user naturally with this info!` }], false);
       }
 
-      const finalHistory = [...chatHistory, { role: 'assistant', content: aiReply }];
+      const cleaned = cleanLinksAndExtractSources(result.raw, result.annotations, extraSources);
+      const finalHistory = [...chatHistory, { role: 'assistant', content: cleaned.text, sources: cleaned.sources }];
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
     } catch (e) {
@@ -433,7 +483,7 @@ export default function App() {
       setMessages([...chatHistory, { role: 'assistant', content: `⚠️ Error: ${e.message}${tip}` }]);
     } finally {
       setIsLoading(false);
-      setThinkingText('✧ Synthesizing...');
+      setThinkingStatus('');
     }
   };
 
@@ -471,6 +521,18 @@ export default function App() {
           const cleanText = part.replace(/\*\*/g, '');
           return cleanText.trim() ? <Text key={index} style={styles.msgText}>{cleanText}</Text> : null;
         })}
+        {item.sources?.length > 0 && (
+          <View style={styles.sourcesWrap}>
+            <Text style={styles.sourcesLabel}>VISITED SOURCES</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {item.sources.map((s, idx) => (
+                <TouchableOpacity key={idx} style={styles.sourcePill} onPress={() => Linking.openURL(s.url)} activeOpacity={0.7}>
+                  <Text style={styles.sourcePillText} numberOfLines={1}>🌐 {s.domain} ↗</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
       </View>
     );
   };
@@ -618,7 +680,7 @@ export default function App() {
           data={isLoading ? [...messages, { role: 'thinking' }] : messages}
           keyExtractor={(_, i) => i.toString()}
           renderItem={({ item, index }) => {
-            if (item.role === 'thinking') return <ThinkingIndicator text={thinkingText} />;
+            if (item.role === 'thinking') return <ThinkingIndicator statusText={thinkingStatus} webActive={webSearchOn} />;
             const isUser = item.role === 'user';
             return (
               <AnimatedBubble style={isUser ? styles.userMsgWrap : styles.aiMsg}>
@@ -746,6 +808,8 @@ const styles = StyleSheet.create({
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyLogo: { fontSize: 40, color: '#333' },
   emptyChatText: { color: '#555', fontSize: 18 },
+  thinkingCard: { alignSelf: 'flex-start', backgroundColor: '#121215', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, borderWidth: 1, borderColor: '#222228', marginVertical: 8 },
+  thinkingText: { color: '#9CC2F7', fontSize: 13, fontWeight: '600' },
   userMsgWrap: { alignSelf: 'flex-end', alignItems: 'flex-end', marginVertical: 8, maxWidth: '85%' },
   userMsg: { backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, borderWidth: 1, borderColor: '#222' },
   editingBubble: { borderColor: '#4A90E2', backgroundColor: '#162030' },
@@ -757,6 +821,10 @@ const styles = StyleSheet.create({
   aiMsg: { alignSelf: 'flex-start', paddingVertical: 12, paddingHorizontal: 4, marginVertical: 6, maxWidth: '96%' },
   msgText: { color: '#FFF', fontSize: 16, lineHeight: 26 },
   msgImageThumb: { width: 90, height: 90, borderRadius: 12, marginRight: 8, backgroundColor: '#111' },
+  sourcesWrap: { marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#18181C' },
+  sourcesLabel: { color: '#666', fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 8 },
+  sourcePill: { backgroundColor: '#16161B', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, borderWidth: 1, borderColor: '#282830', maxWidth: 190 },
+  sourcePillText: { color: '#7BB1F5', fontSize: 12, fontWeight: '600' },
   codeContainer: { backgroundColor: '#0D0D10', borderRadius: 14, borderWidth: 1, borderColor: '#222', marginVertical: 10, overflow: 'hidden' },
   codeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#151518', borderBottomWidth: 1, borderBottomColor: '#202025' },
   codeLang: { color: '#888', fontSize: 12, fontWeight: '700', flex: 1, marginRight: 8 },
