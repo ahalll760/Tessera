@@ -44,6 +44,13 @@ const DEFAULT_PROVIDERS = [
   }
 ];
 
+const STARTER_PROMPTS = [
+  { label: '💻 Draft code & file', prompt: 'Create a clean Python script file to organize my downloads folder' },
+  { label: '🌦️ Live weather', prompt: "What's the weather looking like today in Paris?" },
+  { label: '🌐 Search live web', prompt: 'What are the biggest AI & tech news stories right now?', web: true },
+  { label: '🧠 Brainstorm ideas', prompt: 'Give me 3 creative app ideas I can build and launch this week' }
+];
+
 const EXT_MAP = { javascript: 'js', js: 'js', jsx: 'jsx', ts: 'ts', python: 'py', py: 'py', lua: 'lua', html: 'html', css: 'css', json: 'json', sql: 'sql', sh: 'sh', md: 'md', txt: 'txt' };
 const WMO = { 0:'Clear sky', 1:'Mainly clear', 2:'Partly cloudy', 3:'Overcast', 45:'Foggy', 48:'Foggy', 51:'Light drizzle', 53:'Drizzle', 61:'Light rain', 63:'Rain', 65:'Heavy rain', 71:'Light snow', 73:'Snow', 80:'Rain showers', 95:'Thunderstorm' };
 
@@ -86,9 +93,7 @@ const cleanLinksAndExtractSources = (rawText, annotations = [], extraSources = [
       sources.push({ url: cleanUrl, domain, title: title || domain });
     }
   };
-
   (annotations || []).forEach(a => { if (a?.url_citation?.url) addSource(a.url_citation.url, a.url_citation.title); });
-
   const parts = (rawText || '').split(/(```[\s\S]*?```)/g);
   const text = parts.map(part => {
     if (part.startsWith('```')) return part;
@@ -97,8 +102,28 @@ const cleanLinksAndExtractSources = (rawText, annotations = [], extraSources = [
     p = p.replace(/(https?:\/\/[^\s]+)/g, (url) => { addSource(url); return ''; });
     return p.replace(/[ \t]{2,}/g, ' ');
   }).join('').trim();
-
   return { text, sources };
+};
+
+const renderFormattedInline = (str, baseStyle) => {
+  return str.split(/(\*\*.*?\*\*)/g).map((s, i) => {
+    if (s.startsWith('**') && s.endsWith('**') && s.length > 4) {
+      return <Text key={i} style={[baseStyle, { fontWeight: '700', color: '#FFF' }]}>{s.slice(2, -2)}</Text>;
+    }
+    return <Text key={i} style={baseStyle}>{s.replace(/\*\*/g, '')}</Text>;
+  });
+};
+
+const renderRichText = (block) => {
+  return block.split('\n').map((rawLine, idx) => {
+    const trimmed = rawLine.trim();
+    if (!trimmed) return <View key={idx} style={{ height: 8 }} />;
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) return <View key={idx} style={styles.mdDivider} />;
+    const headingMatch = trimmed.match(/^#{1,6}\s+(.*)$/);
+    if (headingMatch) return <Text key={idx} style={styles.mdHeading}>{headingMatch[1].replace(/\*\*/g, '')}</Text>;
+    const bulletLine = trimmed.replace(/^[-*]\s+/, '• ');
+    return <Text key={idx} style={styles.msgText}>{renderFormattedInline(bulletLine, styles.msgText)}</Text>;
+  });
 };
 
 const downloadFile = (filename, content) => {
@@ -155,6 +180,44 @@ const processVideo = (file) => new Promise((resolve, reject) => {
   video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Unsupported video. Try MP4.')); };
   video.src = url; video.load();
 });
+
+const EmptyHero = ({ onSelectPrompt }) => {
+  const pulse = useRef(new Animated.Value(0.65)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+  const fadeUp = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeUp, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+    Animated.loop(Animated.parallel([
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1800, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.65, duration: 1800, useNativeDriver: true })
+      ]),
+      Animated.sequence([
+        Animated.timing(scale, { toValue: 1.08, duration: 1800, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 1, duration: 1800, useNativeDriver: true })
+      ])
+    ])).start();
+  }, []);
+
+  return (
+    <Animated.View style={[styles.emptyChat, { opacity: fadeUp }]}>
+      <Animated.View style={[styles.heroOrb, { opacity: pulse, transform: [{ scale }] }]}>
+        <Text style={styles.emptyLogo}>✧</Text>
+      </Animated.View>
+      <Text style={styles.heroBrand}>Tessarc</Text>
+      <Text style={styles.heroTagline}>Multi-model AI • Live Web • File Export</Text>
+      <Text style={styles.emptyChatText}>How can I help you today?</Text>
+      <View style={styles.starterGrid}>
+        {STARTER_PROMPTS.map((item, idx) => (
+          <TouchableOpacity key={idx} style={styles.starterChip} onPress={() => onSelectPrompt(item)} activeOpacity={0.7}>
+            <Text style={styles.starterChipText}>{item.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </Animated.View>
+  );
+};
 
 const AnimatedBubble = ({ children, style }) => {
   const fade = useRef(new Animated.Value(0)).current;
@@ -350,6 +413,11 @@ export default function App() {
 
   const cancelEdit = () => { setEditingIndex(null); setInputText(''); setAttachments([]); };
 
+  const handleSelectStarter = (item) => {
+    setInputText(item.prompt);
+    if (item.web) setWebSearchOn(true);
+  };
+
   const handlePickMedia = () => {
     setMediaNotice('');
     if (typeof document === 'undefined') { setMediaNotice('⚠️ Media attachments work on tessarc.vercel.app web.'); return; }
@@ -405,7 +473,7 @@ export default function App() {
 
     const attemptFetch = async (msgsToSend, useWebPlugin) => {
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
-      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. When creating files/code, put the filename in the code header like \`\`\`lua:speed.lua. NEVER invent random stock photo URLs or paste raw URLs in paragraphs. Do not use markdown asterisks (**) in regular text.\nLIVE TOOLS: If asked for current weather/forecast in a city and you don't already have it, reply ONLY with: [[WEATHER:CityName]]. If asked for factual lookups you aren't sure about, reply ONLY with: [[SEARCH:query]].`;
+      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. When creating files/code, put the filename in the code header like \`\`\`lua:speed.lua. NEVER invent random stock photo URLs or paste raw URLs in paragraphs.\nLIVE TOOLS: If asked for current weather/forecast in a city and you don't already have it, reply ONLY with: [[WEATHER:CityName]]. If asked for factual lookups you aren't sure about, reply ONLY with: [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       if (isClaudeModel && anthropicKey.trim()) {
@@ -430,7 +498,6 @@ export default function App() {
       }) : ({ role: m.role, content: m.content }));
 
       const body = { model: selectedModel.id, messages: [{ role: "system", content: systemPrompt }, ...openRouterMsgs] };
-      // Don't attach web search plugin if user sent personal photos/videos unless text specifically asks
       if (useWebPlugin && allFrames.length === 0) body.plugins = [{ id: 'web', max_results: 3 }];
 
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -518,8 +585,7 @@ export default function App() {
             } else { code = part.slice(3, -3).trim(); }
             return <CodeBlock key={index} code={code} filename={filename} language={lang} />;
           }
-          const cleanText = part.replace(/\*\*/g, '');
-          return cleanText.trim() ? <Text key={index} style={styles.msgText}>{cleanText}</Text> : null;
+          return part.trim() ? <View key={index}>{renderRichText(part)}</View> : null;
         })}
         {item.sources?.length > 0 && (
           <View style={styles.sourcesWrap}>
@@ -549,16 +615,16 @@ export default function App() {
         <ScrollView style={styles.settingsContent}>
           <Text style={styles.sectionLabel}>OPENROUTER API KEY</Text>
           <Text style={styles.helperText}>Unlocks Free models, Gemini, Hydrogen, GPT-4o, DeepSeek & Llama.</Text>
-          <TextInput style={styles.keyInput} value={apiKey} onChangeText={handleApiKeyChange} placeholder="sk-or-v1-..." placeholderTextColor="#444" autoCapitalize="none" autoCorrect={false} />
+          <TextInput style={styles.keyInput} value={apiKey} onChangeText={handleApiKeyChange} placeholder="sk-or-v1-..." placeholderTextColor="#555" autoCapitalize="none" autoCorrect={false} />
           <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.linkButtonText}>Get OpenRouter Key ↗</Text></TouchableOpacity>
           <View style={{height: 10}} />
           <Text style={styles.sectionLabel}>ANTHROPIC (CLAUDE) API KEY</Text>
           <Text style={styles.helperText}>Optional direct native key for Claude 3.7 Sonnet.</Text>
-          <TextInput style={styles.keyInput} value={anthropicKey} onChangeText={handleAnthropicKeyChange} placeholder="sk-ant-..." placeholderTextColor="#444" autoCapitalize="none" autoCorrect={false} />
+          <TextInput style={styles.keyInput} value={anthropicKey} onChangeText={handleAnthropicKeyChange} placeholder="sk-ant-..." placeholderTextColor="#555" autoCapitalize="none" autoCorrect={false} />
           <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://console.anthropic.com/settings/keys')}><Text style={styles.linkButtonText}>Get Anthropic Claude Key ↗</Text></TouchableOpacity>
           <View style={{height: 20}} />
           <Text style={styles.sectionLabel}>CUSTOM INSTRUCTIONS</Text>
-          <TextInput style={styles.contextInput} value={userContext} onChangeText={handleContextChange} multiline placeholder="e.g., Explain things simply..." placeholderTextColor="#444" />
+          <TextInput style={styles.contextInput} value={userContext} onChangeText={handleContextChange} multiline placeholder="e.g., Explain things simply..." placeholderTextColor="#555" />
           <View style={{height: 60}} />
         </ScrollView>
       </SafeAreaView>
@@ -571,6 +637,7 @@ export default function App() {
         .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
         .slice(0, 25)
     : activeProvider.models;
+  const canSend = (inputText.trim().length > 0 || attachments.length > 0) && !isLoading;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -613,7 +680,7 @@ export default function App() {
               </View>
               <TouchableOpacity onPress={closeModelSheet} style={styles.sheetClosePill}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity>
             </View>
-            <TextInput style={styles.sheetSearchInput} value={modelSearch} onChangeText={setModelSearch} placeholder="🔍 Search all models (hydrogen, gemini, claude)..." placeholderTextColor="#666" autoCapitalize="none" />
+            <TextInput style={styles.sheetSearchInput} value={modelSearch} onChangeText={setModelSearch} placeholder="🔍 Search all models (hydrogen, gemini, claude)..." placeholderTextColor="#777" autoCapitalize="none" />
             {!modelSearch.trim() && (
               <View style={styles.companyTabsWrap}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}>
@@ -692,7 +759,7 @@ export default function App() {
             );
           }}
           contentContainerStyle={{ padding: 20, flexGrow: 1, justifyContent: 'flex-end' }}
-          ListEmptyComponent={() => <View style={styles.emptyChat}><Text style={styles.emptyLogo}>✧</Text><Text style={styles.emptyChatText}>How can I help?</Text></View>}
+          ListEmptyComponent={() => <EmptyHero onSelectPrompt={handleSelectStarter} />}
         />
 
         {mediaNotice ? <Text style={styles.mediaNoticeText}>{mediaNotice}</Text> : null}
@@ -721,9 +788,9 @@ export default function App() {
           <TouchableOpacity style={[styles.attachBtn, webSearchOn && styles.webBtnActive]} onPress={() => setWebSearchOn(!webSearchOn)}>
             <Text style={styles.attachTxt}>🌐</Text>
           </TouchableOpacity>
-          <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : "Message..."} placeholderTextColor="#666" />
-          <TouchableOpacity style={[styles.sendBtn, editingIndex !== null && { backgroundColor: '#4A90E2' }]} onPress={sendMessage} disabled={isLoading}>
-            <Text style={[styles.sendTxt, { opacity: isLoading ? 0.3 : 1, color: editingIndex !== null ? '#FFF' : '#000' }]}>{editingIndex !== null ? '✓' : '↑'}</Text>
+          <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : "Message Tessarc..."} placeholderTextColor="#888" />
+          <TouchableOpacity style={[styles.sendBtn, !canSend && styles.sendBtnIdle, editingIndex !== null && { backgroundColor: '#4A90E2' }]} onPress={sendMessage} disabled={!canSend}>
+            <Text style={[styles.sendTxt, { color: editingIndex !== null ? '#FFF' : (canSend ? '#000' : '#888') }]}>{editingIndex !== null ? '✓' : '↑'}</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -733,13 +800,13 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#111' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#141418' },
   headerIcon: { color: '#FFF', fontSize: 24, padding: 5 },
   headerTitle: { color: '#FFF', fontSize: 18, fontWeight: '700' },
-  modelBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#141416', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 24, maxWidth: 225, borderWidth: 1, borderColor: '#252529' },
+  modelBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#16161A', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 24, maxWidth: 225, borderWidth: 1, borderColor: '#2E2E36' },
   liveDot: { width: 7, height: 7, borderRadius: 4, marginRight: 8 },
   modelBtnText: { color: '#FFF', fontSize: 13, fontWeight: '600', flexShrink: 1 },
-  modelBtnChevron: { color: '#777', fontSize: 12, marginLeft: 6 },
+  modelBtnChevron: { color: '#999', fontSize: 12, marginLeft: 6 },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end' },
   sheetContainer: { backgroundColor: '#111114', borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderColor: '#27272C', height: '78%', paddingTop: 10 },
   sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#3A3A40', alignSelf: 'center', marginBottom: 12, flexShrink: 0 },
@@ -749,18 +816,18 @@ const styles = StyleSheet.create({
   liveBadgeText: { color: '#4ADE80', fontSize: 10, fontWeight: '800' },
   sheetClosePill: { backgroundColor: '#1D1D22', width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
   dropdownCloseBtn: { color: '#AAA', fontSize: 13, fontWeight: 'bold' },
-  sheetSearchInput: { backgroundColor: '#1A1A1F', color: '#FFF', fontSize: 14, marginHorizontal: 16, marginBottom: 10, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: '#26262C', flexShrink: 0 },
+  sheetSearchInput: { backgroundColor: '#1A1A1F', color: '#FFF', fontSize: 14, marginHorizontal: 16, marginBottom: 10, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: '#2E2E36', flexShrink: 0 },
   companyTabsWrap: { height: 46, flexShrink: 0, marginBottom: 8, justifyContent: 'center' },
-  companyPill: { backgroundColor: '#1B1B20', paddingHorizontal: 14, height: 36, borderRadius: 18, borderWidth: 1, borderColor: '#28282E', justifyContent: 'center', alignItems: 'center' },
+  companyPill: { backgroundColor: '#1B1B20', paddingHorizontal: 14, height: 36, borderRadius: 18, borderWidth: 1, borderColor: '#2E2E36', justifyContent: 'center', alignItems: 'center' },
   companyPillActive: { backgroundColor: '#FFF', borderColor: '#FFF' },
-  companyPillText: { color: '#AAA', fontSize: 13, fontWeight: '600' },
+  companyPillText: { color: '#BBB', fontSize: 13, fontWeight: '600' },
   companyPillTextActive: { color: '#000', fontWeight: '800' },
   sheetList: { flex: 1, paddingHorizontal: 16 },
   emptySearchText: { color: '#666', fontSize: 14, textAlign: 'center', padding: 30 },
   modelCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#17171B', padding: 14, borderRadius: 16, marginBottom: 8, borderWidth: 1, borderColor: '#222228' },
   modelCardActive: { backgroundColor: '#1E2330', borderColor: '#4A90E2' },
   modelCardTitle: { color: '#E2E2E6', fontSize: 15, fontWeight: '600', marginBottom: 2 },
-  modelCardSub: { color: '#5A5A62', fontSize: 11 },
+  modelCardSub: { color: '#66666E', fontSize: 11 },
   modelBadges: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   visionBadge: { backgroundColor: '#22222A', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 },
   visionBadgeText: { fontSize: 11 },
@@ -785,11 +852,11 @@ const styles = StyleSheet.create({
   settingsRowText: { color: '#FFF', fontSize: 16 },
   settingsContent: { padding: 20 },
   sectionLabel: { color: '#888', fontSize: 12, fontWeight: '800', letterSpacing: 1.5, marginBottom: 8 },
-  helperText: { color: '#555', fontSize: 13, marginBottom: 12, lineHeight: 18 },
-  keyInput: { backgroundColor: '#111', color: '#FFF', fontSize: 14, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#222', marginBottom: 12 },
+  helperText: { color: '#666', fontSize: 13, marginBottom: 12, lineHeight: 18 },
+  keyInput: { backgroundColor: '#111', color: '#FFF', fontSize: 14, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#2C2C34', marginBottom: 12 },
   linkButton: { backgroundColor: '#1C1C1E', paddingVertical: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
   linkButtonText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
-  contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#222', textAlignVertical: 'top' },
+  contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#2C2C34', textAlignVertical: 'top' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
   noticeCard: { backgroundColor: '#141416', width: '100%', borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
   noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
@@ -805,21 +872,32 @@ const styles = StyleSheet.create({
   checkboxLabel: { color: '#888', fontSize: 13 },
   noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
   noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
-  emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  emptyLogo: { fontSize: 40, color: '#333' },
-  emptyChatText: { color: '#555', fontSize: 18 },
+
+  // ELEVATED EMPTY STATE
+  emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 10 },
+  heroOrb: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#131318', borderWidth: 1, borderColor: '#2C2C35', justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
+  emptyLogo: { fontSize: 28, color: '#FFF' },
+  heroBrand: { color: '#FFF', fontSize: 28, fontWeight: '900', letterSpacing: -0.8, marginBottom: 4 },
+  heroTagline: { color: '#6B6B76', fontSize: 12, fontWeight: '600', letterSpacing: 0.4, marginBottom: 18 },
+  emptyChatText: { color: '#999', fontSize: 16, fontWeight: '500', marginBottom: 18 },
+  starterGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, maxWidth: 340 },
+  starterChip: { backgroundColor: '#16161B', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: '#2C2C35' },
+  starterChipText: { color: '#DDD', fontSize: 13, fontWeight: '600' },
+
   thinkingCard: { alignSelf: 'flex-start', backgroundColor: '#121215', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, borderWidth: 1, borderColor: '#222228', marginVertical: 8 },
   thinkingText: { color: '#9CC2F7', fontSize: 13, fontWeight: '600' },
   userMsgWrap: { alignSelf: 'flex-end', alignItems: 'flex-end', marginVertical: 8, maxWidth: '85%' },
   userMsg: { backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, borderWidth: 1, borderColor: '#222' },
   editingBubble: { borderColor: '#4A90E2', backgroundColor: '#162030' },
   editTrigger: { paddingTop: 5, paddingHorizontal: 6 },
-  editTriggerText: { color: '#555', fontSize: 12, fontWeight: '600' },
+  editTriggerText: { color: '#666', fontSize: 12, fontWeight: '600' },
   editingBanner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#131C2B', paddingHorizontal: 18, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#233554' },
   editingBannerText: { color: '#7BB1F5', fontSize: 12, fontWeight: '600' },
   editingCancelText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
   aiMsg: { alignSelf: 'flex-start', paddingVertical: 12, paddingHorizontal: 4, marginVertical: 6, maxWidth: '96%' },
-  msgText: { color: '#FFF', fontSize: 16, lineHeight: 26 },
+  msgText: { color: '#EAEAEA', fontSize: 16, lineHeight: 26 },
+  mdHeading: { color: '#FFF', fontSize: 18, fontWeight: '800', marginTop: 8, marginBottom: 4, letterSpacing: -0.2 },
+  mdDivider: { height: 1, backgroundColor: '#24242A', marginVertical: 12 },
   msgImageThumb: { width: 90, height: 90, borderRadius: 12, marginRight: 8, backgroundColor: '#111' },
   sourcesWrap: { marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#18181C' },
   sourcesLabel: { color: '#666', fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 8 },
@@ -840,11 +918,14 @@ const styles = StyleSheet.create({
   previewLabel: { color: '#CCC', fontSize: 12, fontWeight: '600', marginRight: 8 },
   removeAttBtn: { padding: 4 },
   removeAttText: { color: '#888', fontSize: 14, fontWeight: 'bold' },
-  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingBottom: 20, backgroundColor: '#000', borderTopWidth: 1, borderTopColor: '#111' },
-  attachBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#161618', justifyContent: 'center', alignItems: 'center', marginRight: 6, borderWidth: 1, borderColor: '#252528' },
-  webBtnActive: { backgroundColor: '#132743', borderColor: '#4A90E2' },
-  attachTxt: { fontSize: 16 },
-  input: { flex: 1, backgroundColor: '#1A1A1A', color: '#FFF', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#222' },
+
+  // HIGHER CONTRAST INPUT BAR AFFORDANCE
+  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingBottom: 20, backgroundColor: '#000', borderTopWidth: 1, borderTopColor: '#1A1A20' },
+  attachBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#202027', justifyContent: 'center', alignItems: 'center', marginRight: 6, borderWidth: 1, borderColor: '#363642' },
+  webBtnActive: { backgroundColor: '#163052', borderColor: '#4A90E2' },
+  attachTxt: { fontSize: 17 },
+  input: { flex: 1, backgroundColor: '#1C1C22', color: '#FFF', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#34343E' },
   sendBtn: { marginLeft: 8, backgroundColor: '#FFF', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-  sendTxt: { color: '#000', fontSize: 22, fontWeight: 'bold' }
+  sendBtnIdle: { backgroundColor: '#24242C', borderWidth: 1, borderColor: '#363642' },
+  sendTxt: { fontSize: 22, fontWeight: 'bold' }
 });
