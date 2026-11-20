@@ -300,7 +300,6 @@ export default function App() {
     await syncChatsWithStorage(updated);
   };
 
-  // --- START EDITING A USER MESSAGE ---
   const startEdit = (index) => {
     const target = messages[index];
     if (!target || target.role !== 'user') return;
@@ -352,7 +351,6 @@ export default function App() {
     const userText = inputText.trim() || (hasVideo ? 'What is happening in this video?' : 'Analyze this image.');
     
     const newUserMsg = { role: 'user', content: userText, images: allFrames };
-    // Rewind conversation if editing a previous message!
     const baseHistory = editingIndex !== null ? messages.slice(0, editingIndex) : messages;
     const chatHistory = [...baseHistory, newUserMsg];
 
@@ -506,7 +504,6 @@ export default function App() {
         <TouchableOpacity onPress={startNewChat}><Text style={styles.headerIcon}>＋</Text></TouchableOpacity>
       </View>
 
-      {/* ONBOARDING KEY MODAL */}
       <Modal visible={showNoticeModal && !apiKey && !anthropicKey && !dontShowAgain} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.noticeCard}>
@@ -523,7 +520,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* ANIMATED DYNAMIC MODEL BOTTOM SHEET */}
+      {/* ANIMATED DYNAMIC MODEL BOTTOM SHEET (FIXED PILLS HEIGHT) */}
       <Modal visible={showModels} transparent animationType="none" onRequestClose={closeModelSheet}>
         <Animated.View style={[styles.sheetBackdrop, { opacity: sheetFade }]}>
           <Pressable style={{ flex: 1 }} onPress={closeModelSheet} />
@@ -549,16 +546,18 @@ export default function App() {
             />
 
             {!modelSearch.trim() && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.companyTabsScroll} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-                {providers.map((p) => {
-                  const active = p.id === activeProvider.id;
-                  return (
-                    <TouchableOpacity key={p.id} onPress={() => switchCompanyTab(p.id)} style={[styles.companyPill, active && styles.companyPillActive]}>
-                      <Text style={[styles.companyPillText, active && styles.companyPillTextActive]}>{p.name}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+              <View style={styles.companyTabsWrap}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}>
+                  {providers.map((p) => {
+                    const active = p.id === activeProvider.id;
+                    return (
+                      <TouchableOpacity key={p.id} onPress={() => switchCompanyTab(p.id)} style={[styles.companyPill, active && styles.companyPillActive]}>
+                        <Text style={[styles.companyPillText, active && styles.companyPillTextActive]}>{p.name}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
             )}
 
             <Animated.ScrollView style={[styles.sheetList, { opacity: listFade }]} showsVerticalScrollIndicator={false}>
@@ -593,7 +592,6 @@ export default function App() {
         </Animated.View>
       </Modal>
 
-      {/* DRAWER MENU */}
       <Modal visible={isModalVisible} transparent animationType="fade">
         <View style={styles.menuOverlay}>
           <Animated.View style={[styles.menuContent, { transform: [{ translateX: slideAnim }] }]}>
@@ -613,7 +611,6 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* CHAT INTERFACE */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'padding'} style={{ flex: 1 }}>
         <FlatList
           key="chat-list"
@@ -684,23 +681,23 @@ const styles = StyleSheet.create({
   modelBtnText: { color: '#FFF', fontSize: 13, fontWeight: '600', flexShrink: 1 },
   modelBtnChevron: { color: '#777', fontSize: 12, marginLeft: 6 },
 
-  // ANIMATED BOTTOM SHEET
+  // FIXED: height & flexShrink so top controls never get squeezed!
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end' },
-  sheetContainer: { backgroundColor: '#111114', borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderColor: '#27272C', maxHeight: '78%', paddingTop: 10 },
-  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#3A3A40', alignSelf: 'center', marginBottom: 12 },
-  sheetHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 12 },
+  sheetContainer: { backgroundColor: '#111114', borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderColor: '#27272C', height: '78%', paddingTop: 10 },
+  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#3A3A40', alignSelf: 'center', marginBottom: 12, flexShrink: 0 },
+  sheetHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 12, flexShrink: 0 },
   sheetTitle: { color: '#FFF', fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
   liveBadge: { backgroundColor: '#112E1D', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1, borderColor: '#1E4D31' },
   liveBadgeText: { color: '#4ADE80', fontSize: 10, fontWeight: '800' },
   sheetClosePill: { backgroundColor: '#1D1D22', width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
   dropdownCloseBtn: { color: '#AAA', fontSize: 13, fontWeight: 'bold' },
-  sheetSearchInput: { backgroundColor: '#1A1A1F', color: '#FFF', fontSize: 14, marginHorizontal: 16, marginBottom: 12, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: '#26262C' },
-  companyTabsScroll: { maxHeight: 42, marginBottom: 10 },
-  companyPill: { backgroundColor: '#1B1B20', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#28282E', justifyContent: 'center' },
+  sheetSearchInput: { backgroundColor: '#1A1A1F', color: '#FFF', fontSize: 14, marginHorizontal: 16, marginBottom: 10, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: '#26262C', flexShrink: 0 },
+  companyTabsWrap: { height: 46, flexShrink: 0, marginBottom: 8, justifyContent: 'center' },
+  companyPill: { backgroundColor: '#1B1B20', paddingHorizontal: 14, height: 36, borderRadius: 18, borderWidth: 1, borderColor: '#28282E', justifyContent: 'center', alignItems: 'center' },
   companyPillActive: { backgroundColor: '#FFF', borderColor: '#FFF' },
   companyPillText: { color: '#AAA', fontSize: 13, fontWeight: '600' },
   companyPillTextActive: { color: '#000', fontWeight: '800' },
-  sheetList: { paddingHorizontal: 16 },
+  sheetList: { flex: 1, paddingHorizontal: 16 },
   emptySearchText: { color: '#666', fontSize: 14, textAlign: 'center', padding: 30 },
   modelCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#17171B', padding: 14, borderRadius: 16, marginBottom: 8, borderWidth: 1, borderColor: '#222228' },
   modelCardActive: { backgroundColor: '#1E2330', borderColor: '#4A90E2' },
@@ -713,7 +710,6 @@ const styles = StyleSheet.create({
   freeBadgeText: { color: '#4ADE80', fontSize: 10, fontWeight: '800' },
   checkmark: { color: '#4A90E2', fontSize: 15, fontWeight: 'bold', marginLeft: 4 },
 
-  // DRAWER & SETTINGS
   menuOverlay: { flex: 1, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)' },
   menuContent: { width: '80%', backgroundColor: '#0A0A0A', padding: 20, paddingTop: 50, borderRightWidth: 1, borderRightColor: '#222' },
   menuCloseArea: { flex: 1 }, 
@@ -738,7 +734,6 @@ const styles = StyleSheet.create({
   linkButtonText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
   contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#222', textAlignVertical: 'top' },
 
-  // NOTICE MODAL
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
   noticeCard: { backgroundColor: '#141416', width: '100%', borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
   noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
@@ -755,7 +750,6 @@ const styles = StyleSheet.create({
   noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
   noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
 
-  // CHAT & EDITING
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyLogo: { fontSize: 40, color: '#333' },
   emptyChatText: { color: '#555', fontSize: 18 },
