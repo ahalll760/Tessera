@@ -6,41 +6,44 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const PROVIDERS = [
+const DEFAULT_PROVIDERS = [
   {
     id: 'free_tier',
     name: '🌟 100% Free Models',
     models: [
-      { id: 'openrouter/free', name: 'Auto-Router (Fast & Free)' },
-      { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Meta: Llama 3.3 70B' },
-      { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek: R1 (Reasoning)' },
-      { id: 'qwen/qwen-2.5-coder-32b-instruct:free', name: 'Alibaba: Qwen 2.5 Coder' },
-      { id: 'google/gemma-2-9b-it:free', name: 'Google: Gemma 2 9B' }
-    ]
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI (Vision + Text)',
-    models: [
-      { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini (Fast Vision)' },
-      { id: 'openai/gpt-4o', name: 'GPT-4o (Best Vision)' },
-      { id: 'openai/o3-mini', name: 'o3-mini (Reasoning)' }
-    ]
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic (Vision + Text)',
-    models: [
-      { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet' },
-      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' }
+      { id: 'openrouter/free', name: 'Auto-Router (Fast & Free)', isVision: true },
+      { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4 (Free)', isVision: true },
+      { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Meta: Llama 3.3 70B (Free)' },
+      { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek: R1 (Free)' }
     ]
   },
   {
     id: 'google',
-    name: 'Google Pro (Vision + Text)',
+    name: 'Google & Gemini',
     models: [
-      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
-      { id: 'google/gemini-1.5-flash', name: 'Gemini 1.5 Flash' }
+      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', isVision: true },
+      { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', isVision: true },
+      { id: 'google/gemini-2.0-flash-001', name: 'Gemini 2.0 Flash', isVision: true },
+      { id: 'google/gemini-2.0-flash-lite-001', name: 'Gemini 2.0 Flash Lite', isVision: true },
+      { id: 'google/gemma-4-26b-a4b-it:free', name: 'Gemma 4 26B (Free)', isVision: true },
+      { id: 'google/gemma-2-9b-it:free', name: 'Gemma 2 9B (Free)' }
+    ]
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    models: [
+      { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', isVision: true },
+      { id: 'openai/gpt-4o', name: 'GPT-4o', isVision: true },
+      { id: 'openai/o3-mini', name: 'o3-mini' }
+    ]
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic (Claude)',
+    models: [
+      { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet', isVision: true },
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', isVision: true }
     ]
   }
 ];
@@ -92,7 +95,7 @@ const processVideo = (file) => new Promise((resolve, reject) => {
   video.onloadedmetadata = async () => {
     if (video.duration > 70) {
       URL.revokeObjectURL(url);
-      return reject(new Error(`Video is ${Math.ceil(video.duration)}s. Maximum allowed is 70 seconds.`));
+      return reject(new Error(`Video is ${Math.ceil(video.duration)}s. Max allowed is 70 seconds.`));
     }
     const stamps = [0.15, 0.4, 0.65, 0.88].map(p => Math.min(Math.max(0.1, video.duration - 0.1), video.duration * p));
     const frames = [];
@@ -182,7 +185,10 @@ const CodeBlock = ({ code, filename, language }) => {
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('chat');
   const [showModels, setShowModels] = useState(false);
-  const [selectedCompany, setSelectedCompany] = useState(null); 
+  const [selectedCompany, setSelectedCompany] = useState(null);
+  const [modelSearch, setModelSearch] = useState('');
+  const [providers, setProviders] = useState(DEFAULT_PROVIDERS);
+  const [allLiveModels, setAllLiveModels] = useState([]);
   const [isModalVisible, setIsModalVisible] = useState(false); 
   
   const [apiKey, setApiKey] = useState('');
@@ -193,15 +199,16 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(PROVIDERS[0].models[0]); 
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_PROVIDERS[0].models[0]); 
 
-  const [attachments, setAttachments] = useState([]); // Array of { type: 'image'|'video', preview: string, frames: string[], label: string }
+  const [attachments, setAttachments] = useState([]);
   const [mediaNotice, setMediaNotice] = useState('');
   const [showNoticeModal, setShowNoticeModal] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
   const slideAnim = useRef(new Animated.Value(-350)).current; 
 
+  // --- HYDRATE STORAGE + FETCH LIVE OPENROUTER MODELS ---
   useEffect(() => {
     (async () => {
       try {
@@ -218,6 +225,46 @@ export default function App() {
         else if (!storedKey && !storedAnthropic) setShowNoticeModal(true);
       } catch (err) {}
     })();
+
+    // Fetch live OpenRouter catalog (always up-to-date!)
+    fetch('https://openrouter.ai/api/v1/models')
+      .then(r => r.json())
+      .then(json => {
+        if (!Array.isArray(json?.data)) return;
+        const isFree = (m) => Number(m.pricing?.prompt) === 0 && Number(m.pricing?.completion) === 0;
+        const fmt = (m) => ({
+          id: m.id,
+          name: `${(m.name || m.id).replace(/^(Google|OpenAI|Anthropic|Meta|DeepSeek|Qwen|Mistral):\s*/i, '')}${isFree(m) && !(m.name || '').toLowerCase().includes('free') ? ' (Free)' : ''}`,
+          isVision: Array.isArray(m.architecture?.input_modalities) ? m.architecture.input_modalities.includes('image') : false,
+          free: isFree(m)
+        });
+
+        const formatted = json.data.map(fmt);
+        setAllLiveModels(formatted);
+
+        const pick = (fn, limit = 15) => formatted.filter(fn).slice(0, limit);
+        const freeModels = [
+          { id: 'openrouter/free', name: 'Auto-Router (Fast & Free)', isVision: true, free: true },
+          ...formatted.filter(m => m.free && m.id !== 'openrouter/free').slice(0, 20)
+        ];
+        const googleModels = [
+          ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini') || m.name.toLowerCase().includes('hydrogen')) && m.free),
+          ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini')) && !m.free)
+        ].slice(0, 15);
+
+        const liveProviders = [
+          { id: 'free_tier', name: `🌟 100% Free (${freeModels.length})`, models: freeModels },
+          { id: 'google', name: `Google & Gemini (${googleModels.length})`, models: googleModels },
+          { id: 'openai', name: 'OpenAI', models: pick(m => m.id.startsWith('openai/'), 10) },
+          { id: 'anthropic', name: 'Anthropic (Claude)', models: pick(m => m.id.startsWith('anthropic/'), 10) },
+          { id: 'deepseek', name: 'DeepSeek', models: pick(m => m.id.startsWith('deepseek/'), 10) },
+          { id: 'meta', name: 'Meta (Llama)', models: pick(m => m.id.startsWith('meta-llama/'), 10) },
+          { id: 'alibaba', name: 'Alibaba (Qwen)', models: pick(m => m.id.startsWith('qwen/'), 10) }
+        ].filter(p => p.models.length > 0);
+
+        if (liveProviders.length > 0) setProviders(liveProviders);
+      })
+      .catch(() => {});
   }, []);
 
   const handleApiKeyChange = async (key) => { setApiKey(key); try { await AsyncStorage.setItem('@council_api_key_v1', key.trim()); } catch (e) {} };
@@ -238,7 +285,6 @@ export default function App() {
     await syncChatsWithStorage(updated);
   };
 
-  // --- IMAGE & VIDEO PICKER (MAX 70s VIDEO) ---
   const handlePickMedia = () => {
     setMediaNotice('');
     if (typeof document === 'undefined') {
@@ -326,7 +372,7 @@ export default function App() {
             "anthropic-dangerous-direct-browser-access": "true"
           },
           body: JSON.stringify({
-            model: selectedModel.id === 'anthropic/claude-3.7-sonnet' ? 'claude-3-7-sonnet-20250219' : 'claude-3-5-sonnet-20241022',
+            model: selectedModel.id.includes('3.7') ? 'claude-3-7-sonnet-20250219' : 'claude-3-5-sonnet-20241022',
             max_tokens: 4000,
             system: systemPrompt,
             messages: formattedMsgs
@@ -374,7 +420,7 @@ export default function App() {
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
     } catch (e) {
-      const tip = allFrames.length > 0 ? '\n\n💡 Tip: Ensure your selected model supports Vision (like GPT-4o, Gemini, or Claude).' : '';
+      const tip = allFrames.length > 0 ? '\n\n💡 Tip: Ensure your selected model supports Vision (look for 👁).' : '';
       setMessages([...chatHistory, { role: 'assistant', content: `⚠️ Error: ${e.message}${tip}` }]);
     } finally {
       setIsLoading(false);
@@ -394,28 +440,21 @@ export default function App() {
   const renderMessageContent = (item) => {
     const content = item.content || '';
     const parts = content.split(/(```[\s\S]*?```)/g);
-
     return (
       <View>
         {item.images && item.images.length > 0 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-            {item.images.map((uri, idx) => (
-              <Image key={idx} source={{ uri }} style={styles.msgImageThumb} />
-            ))}
+            {item.images.map((uri, idx) => <Image key={idx} source={{ uri }} style={styles.msgImageThumb} />)}
           </ScrollView>
         )}
         {parts.map((part, index) => {
           if (part.startsWith('```') && part.endsWith('```')) {
             const firstBreak = part.indexOf('\n');
-            let lang = 'txt';
-            let filename = 'tessarc-file.txt';
-            let code = '';
+            let lang = 'txt', filename = 'tessarc-file.txt', code = '';
             if (firstBreak !== -1) {
-              const header = part.slice(3, firstBreak).trim();
-              const [rawLang, rawFile] = header.split(':');
+              const [rawLang, rawFile] = part.slice(3, firstBreak).trim().split(':');
               lang = (rawLang || 'txt').trim().toLowerCase();
-              const ext = EXT_MAP[lang] || 'txt';
-              filename = rawFile ? rawFile.trim() : `tessarc-file.${ext}`;
+              filename = rawFile ? rawFile.trim() : `tessarc-file.${EXT_MAP[lang] || 'txt'}`;
               code = part.slice(firstBreak + 1, -3).trim();
             } else {
               code = part.slice(3, -3).trim();
@@ -423,8 +462,7 @@ export default function App() {
             return <CodeBlock key={index} code={code} filename={filename} language={lang} />;
           }
           const cleanText = part.replace(/\*\*/g, '');
-          if (!cleanText.trim()) return null;
-          return <Text key={index} style={styles.msgText}>{cleanText}</Text>;
+          return cleanText.trim() ? <Text key={index} style={styles.msgText}>{cleanText}</Text> : null;
         })}
       </View>
     );
@@ -440,13 +478,13 @@ export default function App() {
           <View style={{width: 30}} />
         </View>
         <ScrollView style={styles.settingsContent}>
-          <Text style={styles.sectionLabel}>OPENROUTER API KEY (OPTIONAL)</Text>
-          <Text style={styles.helperText}>Used for Free models, GPT-4o, Gemini, DeepSeek, and Llama.</Text>
+          <Text style={styles.sectionLabel}>OPENROUTER API KEY</Text>
+          <Text style={styles.helperText}>Unlocks Free models, Gemini, Hydrogen, GPT-4o, DeepSeek & Llama.</Text>
           <TextInput style={styles.keyInput} value={apiKey} onChangeText={handleApiKeyChange} placeholder="sk-or-v1-..." placeholderTextColor="#444" autoCapitalize="none" autoCorrect={false} />
           <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://openrouter.ai/keys')}><Text style={styles.linkButtonText}>Get OpenRouter Key ↗</Text></TouchableOpacity>
           <View style={{height: 10}} />
           <Text style={styles.sectionLabel}>ANTHROPIC (CLAUDE) API KEY</Text>
-          <Text style={styles.helperText}>Direct native key for Claude 3.7 Sonnet.</Text>
+          <Text style={styles.helperText}>Optional direct native key for Claude 3.7 Sonnet.</Text>
           <TextInput style={styles.keyInput} value={anthropicKey} onChangeText={handleAnthropicKeyChange} placeholder="sk-ant-..." placeholderTextColor="#444" autoCapitalize="none" autoCorrect={false} />
           <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://console.anthropic.com/settings/keys')}><Text style={styles.linkButtonText}>Get Anthropic Claude Key ↗</Text></TouchableOpacity>
           <View style={{height: 20}} />
@@ -458,12 +496,20 @@ export default function App() {
     );
   }
 
+  const searchMatches = modelSearch.trim()
+    ? (allLiveModels.length > 0 ? allLiveModels : providers.flatMap(p => p.models))
+        .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
+        .slice(0, 20)
+    : [];
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
       <View style={styles.header}>
         <TouchableOpacity onPress={openMenu}><Text style={styles.headerIcon}>☰</Text></TouchableOpacity>
-        <TouchableOpacity onPress={() => { setSelectedCompany(null); setShowModels(!showModels); }} style={styles.modelBtn}><Text style={styles.modelBtnText} numberOfLines={1}>{selectedModel.name} ▾</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => { setSelectedCompany(null); setModelSearch(''); setShowModels(!showModels); }} style={styles.modelBtn}>
+          <Text style={styles.modelBtnText} numberOfLines={1}>{selectedModel.name} ▾</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={startNewChat}><Text style={styles.headerIcon}>＋</Text></TouchableOpacity>
       </View>
 
@@ -485,36 +531,61 @@ export default function App() {
 
       {showModels && (
         <View style={styles.modelDropdown}>
-          {!selectedCompany ? (
-            <View>
-              <View style={styles.dropdownHeader}><Text style={styles.dropdownHeaderTitle}>Select Provider</Text><TouchableOpacity onPress={() => setShowModels(false)}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity></View>
-              <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false}>
-                {PROVIDERS.map((provider) => (
-                  <TouchableOpacity key={provider.id} style={styles.providerRow} onPress={() => setSelectedCompany(provider)}>
-                    <Text style={styles.providerRowText}>{provider.name}</Text><Text style={styles.providerChevron}>›</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          ) : (
-            <View>
-              <View style={styles.dropdownHeader}>
-                <TouchableOpacity onPress={() => setSelectedCompany(null)} style={styles.backRow}><Text style={styles.backArrow}>‹</Text><Text style={styles.dropdownHeaderTitle}>{selectedCompany.name}</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => { setSelectedCompany(null); setShowModels(false); }}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity>
-              </View>
-              <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false}>
-                {selectedCompany.models.map((m) => {
+          <View style={styles.dropdownHeader}>
+            {selectedCompany && !modelSearch.trim() ? (
+              <TouchableOpacity onPress={() => setSelectedCompany(null)} style={styles.backRow}>
+                <Text style={styles.backArrow}>‹</Text>
+                <Text style={styles.dropdownHeaderTitle}>{selectedCompany.name}</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.dropdownHeaderTitle}>{modelSearch.trim() ? 'Search Results' : 'Select Provider'}</Text>
+            )}
+            <TouchableOpacity onPress={() => { setSelectedCompany(null); setShowModels(false); }}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity>
+          </View>
+
+          <TextInput
+            style={styles.searchModelInput}
+            value={modelSearch}
+            onChangeText={setModelSearch}
+            placeholder="Search models (e.g. hydrogen, gemini)..."
+            placeholderTextColor="#666"
+            autoCapitalize="none"
+          />
+
+          <ScrollView style={{ maxHeight: 260 }} showsVerticalScrollIndicator={false}>
+            {modelSearch.trim() ? (
+              searchMatches.length === 0 ? (
+                <Text style={styles.emptySearchText}>No models found for "{modelSearch}"</Text>
+              ) : (
+                searchMatches.map((m) => {
                   const isSelected = selectedModel.id === m.id;
                   return (
                     <TouchableOpacity key={m.id} style={[styles.modelRow, isSelected && styles.selectedModelRow]} onPress={() => { setSelectedModel(m); setSelectedCompany(null); setShowModels(false); }}>
-                      <Text style={[styles.modelRowText, isSelected && styles.selectedModelRowText]}>{m.name}</Text>
+                      <Text style={[styles.modelRowText, isSelected && styles.selectedModelRowText]} numberOfLines={1}>{m.name}{m.isVision ? ' 👁' : ''}</Text>
                       {isSelected && <Text style={styles.checkmark}>✓</Text>}
                     </TouchableOpacity>
                   );
-                })}
-              </ScrollView>
-            </View>
-          )}
+                })
+              )
+            ) : !selectedCompany ? (
+              providers.map((provider) => (
+                <TouchableOpacity key={provider.id} style={styles.providerRow} onPress={() => setSelectedCompany(provider)}>
+                  <Text style={styles.providerRowText}>{provider.name}</Text>
+                  <Text style={styles.providerChevron}>›</Text>
+                </TouchableOpacity>
+              ))
+            ) : (
+              selectedCompany.models.map((m) => {
+                const isSelected = selectedModel.id === m.id;
+                return (
+                  <TouchableOpacity key={m.id} style={[styles.modelRow, isSelected && styles.selectedModelRow]} onPress={() => { setSelectedModel(m); setSelectedCompany(null); setShowModels(false); }}>
+                    <Text style={[styles.modelRowText, isSelected && styles.selectedModelRowText]} numberOfLines={1}>{m.name}{m.isVision ? ' 👁' : ''}</Text>
+                    {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </ScrollView>
         </View>
       )}
 
@@ -564,9 +635,7 @@ export default function App() {
         )}
 
         <View style={styles.inputContainer}>
-          <TouchableOpacity style={styles.attachBtn} onPress={handlePickMedia}>
-            <Text style={styles.attachTxt}>📎</Text>
-          </TouchableOpacity>
+          <TouchableOpacity style={styles.attachBtn} onPress={handlePickMedia}><Text style={styles.attachTxt}>📎</Text></TouchableOpacity>
           <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder="Message..." placeholderTextColor="#666" />
           <TouchableOpacity style={styles.sendBtn} onPress={sendMessage} disabled={isLoading}><Text style={[styles.sendTxt, { opacity: isLoading ? 0.3 : 1 }]}>↑</Text></TouchableOpacity>
         </View>
@@ -582,10 +651,12 @@ const styles = StyleSheet.create({
   headerTitle: { color: '#FFF', fontSize: 18, fontWeight: '700' },
   modelBtn: { backgroundColor: '#111', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, maxWidth: 210 },
   modelBtnText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
-  modelDropdown: { backgroundColor: '#161618', position: 'absolute', top: 70, alignSelf: 'center', zIndex: 20, borderRadius: 18, width: 270, borderWidth: 1, borderColor: '#2A2A2E', overflow: 'hidden' },
+  modelDropdown: { backgroundColor: '#161618', position: 'absolute', top: 70, alignSelf: 'center', zIndex: 20, borderRadius: 18, width: 285, borderWidth: 1, borderColor: '#2A2A2E', overflow: 'hidden' },
   dropdownHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#222', backgroundColor: '#1C1C1F' },
   dropdownHeaderTitle: { color: '#FFF', fontSize: 13, fontWeight: '700' },
   dropdownCloseBtn: { color: '#888', fontSize: 14, padding: 4 },
+  searchModelInput: { backgroundColor: '#101012', color: '#FFF', fontSize: 13, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222' },
+  emptySearchText: { color: '#666', fontSize: 13, textAlign: 'center', padding: 20 },
   backRow: { flexDirection: 'row', alignItems: 'center' },
   backArrow: { color: '#4A90E2', fontSize: 20, fontWeight: '800', marginRight: 6 },
   providerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#202022' },
@@ -593,7 +664,7 @@ const styles = StyleSheet.create({
   providerChevron: { color: '#555', fontSize: 18 },
   modelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#202022' },
   selectedModelRow: { backgroundColor: '#202026' },
-  modelRowText: { color: '#CCC', fontSize: 14 },
+  modelRowText: { color: '#CCC', fontSize: 13, flex: 1, marginRight: 8 },
   selectedModelRowText: { color: '#FFF', fontWeight: '700' },
   checkmark: { color: '#4A90E2', fontSize: 14, fontWeight: 'bold' },
   menuOverlay: { flex: 1, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)' },
