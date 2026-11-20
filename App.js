@@ -9,24 +9,24 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const DEFAULT_PROVIDERS = [
   {
     id: 'free_tier',
-    name: '🌟 100% Free Models',
+    name: '🌟 Free',
     models: [
-      { id: 'openrouter/free', name: 'Auto-Router (Fast & Free)', isVision: true },
-      { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4 (Free)', isVision: true },
-      { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Meta: Llama 3.3 70B (Free)' },
-      { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek: R1 (Free)' }
+      { id: 'openrouter/free', name: 'Auto-Router (Fast)', isVision: true, free: true },
+      { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4', isVision: true, free: true },
+      { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B', free: true },
+      { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1', free: true }
     ]
   },
   {
     id: 'google',
-    name: 'Google & Gemini',
+    name: 'Google',
     models: [
       { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', isVision: true },
       { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', isVision: true },
       { id: 'google/gemini-2.0-flash-001', name: 'Gemini 2.0 Flash', isVision: true },
       { id: 'google/gemini-2.0-flash-lite-001', name: 'Gemini 2.0 Flash Lite', isVision: true },
-      { id: 'google/gemma-4-26b-a4b-it:free', name: 'Gemma 4 26B (Free)', isVision: true },
-      { id: 'google/gemma-2-9b-it:free', name: 'Gemma 2 9B (Free)' }
+      { id: 'google/gemma-4-26b-a4b-it:free', name: 'Gemma 4 26B', isVision: true, free: true },
+      { id: 'google/gemma-2-9b-it:free', name: 'Gemma 2 9B', free: true }
     ]
   },
   {
@@ -40,7 +40,7 @@ const DEFAULT_PROVIDERS = [
   },
   {
     id: 'anthropic',
-    name: 'Anthropic (Claude)',
+    name: 'Claude',
     models: [
       { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet', isVision: true },
       { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', isVision: true }
@@ -95,7 +95,7 @@ const processVideo = (file) => new Promise((resolve, reject) => {
   video.onloadedmetadata = async () => {
     if (video.duration > 70) {
       URL.revokeObjectURL(url);
-      return reject(new Error(`Video is ${Math.ceil(video.duration)}s. Max allowed is 70 seconds.`));
+      return reject(new Error(`Video is ${Math.ceil(video.duration)}s. Max allowed is 70s.`));
     }
     const stamps = [0.15, 0.4, 0.65, 0.88].map(p => Math.min(Math.max(0.1, video.duration - 0.1), video.duration * p));
     const frames = [];
@@ -119,29 +119,34 @@ const processVideo = (file) => new Promise((resolve, reject) => {
     URL.revokeObjectURL(url);
     resolve({ frames, duration: Math.round(video.duration) });
   };
-  video.onerror = () => {
-    URL.revokeObjectURL(url);
-    reject(new Error('Unsupported video format. Try MP4.'));
-  };
+  video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Unsupported video. Try MP4.')); };
   video.src = url;
   video.load();
 });
 
+const AnimatedBubble = ({ children, style }) => {
+  const fade = useRef(new Animated.Value(0)).current;
+  const lift = useRef(new Animated.Value(12)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.spring(lift, { toValue: 0, tension: 80, friction: 12, useNativeDriver: true })
+    ]).start();
+  }, []);
+  return <Animated.View style={[style, { opacity: fade, transform: [{ translateY: lift }] }]}>{children}</Animated.View>;
+};
+
 const ThinkingIndicator = () => {
   const fadeAnim = useRef(new Animated.Value(0.3)).current;
   useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-        Animated.timing(fadeAnim, { toValue: 0.3, duration: 600, useNativeDriver: true })
-      ])
-    ).start();
+    Animated.loop(Animated.sequence([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.timing(fadeAnim, { toValue: 0.3, duration: 600, useNativeDriver: true })
+    ])).start();
   }, []);
   return (
     <View style={styles.aiMsg}>
-      <Animated.Text style={[styles.msgText, { opacity: fadeAnim, color: '#888', fontStyle: 'italic' }]}>
-        ✧ Synthesizing...
-      </Animated.Text>
+      <Animated.Text style={[styles.msgText, { opacity: fadeAnim, color: '#888', fontStyle: 'italic' }]}>✧ Synthesizing...</Animated.Text>
     </View>
   );
 };
@@ -149,28 +154,15 @@ const ThinkingIndicator = () => {
 const CodeBlock = ({ code, filename, language }) => {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
-
-  const handleCopy = () => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  };
-
-  const handleSave = () => {
-    downloadFile(filename, code);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1800);
-  };
-
   return (
     <View style={styles.codeContainer}>
       <View style={styles.codeHeader}>
         <Text style={styles.codeLang} numberOfLines={1}>📄 {filename || language}</Text>
         <View style={{ flexDirection: 'row', gap: 6 }}>
-          <TouchableOpacity onPress={handleSave} style={styles.copyBtn}>
+          <TouchableOpacity onPress={() => { downloadFile(filename, code); setSaved(true); setTimeout(() => setSaved(false), 1800); }} style={styles.copyBtn}>
             <Text style={styles.saveBtnText}>{saved ? 'Saved ✓' : 'Save 💾'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleCopy} style={styles.copyBtn}>
+          <TouchableOpacity onPress={() => { if (navigator?.clipboard) navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1800); }} style={styles.copyBtn}>
             <Text style={styles.copyBtnText}>{copied ? 'Copied ✓' : 'Copy'}</Text>
           </TouchableOpacity>
         </View>
@@ -185,10 +177,11 @@ const CodeBlock = ({ code, filename, language }) => {
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('chat');
   const [showModels, setShowModels] = useState(false);
-  const [selectedCompany, setSelectedCompany] = useState(null);
+  const [selectedCompanyId, setSelectedCompanyId] = useState('free_tier');
   const [modelSearch, setModelSearch] = useState('');
   const [providers, setProviders] = useState(DEFAULT_PROVIDERS);
   const [allLiveModels, setAllLiveModels] = useState([]);
+  const [isLiveSynced, setIsLiveSynced] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false); 
   
   const [apiKey, setApiKey] = useState('');
@@ -198,6 +191,7 @@ export default function App() {
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
+  const [editingIndex, setEditingIndex] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_PROVIDERS[0].models[0]); 
 
@@ -206,9 +200,11 @@ export default function App() {
   const [showNoticeModal, setShowNoticeModal] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
-  const slideAnim = useRef(new Animated.Value(-350)).current; 
+  const slideAnim = useRef(new Animated.Value(-350)).current;
+  const sheetY = useRef(new Animated.Value(500)).current;
+  const sheetFade = useRef(new Animated.Value(0)).current;
+  const listFade = useRef(new Animated.Value(1)).current;
 
-  // --- HYDRATE STORAGE + FETCH LIVE OPENROUTER MODELS ---
   useEffect(() => {
     (async () => {
       try {
@@ -226,43 +222,37 @@ export default function App() {
       } catch (err) {}
     })();
 
-    // Fetch live OpenRouter catalog (always up-to-date!)
     fetch('https://openrouter.ai/api/v1/models')
       .then(r => r.json())
       .then(json => {
         if (!Array.isArray(json?.data)) return;
         const isFree = (m) => Number(m.pricing?.prompt) === 0 && Number(m.pricing?.completion) === 0;
-        const fmt = (m) => ({
+        const formatted = json.data.map((m) => ({
           id: m.id,
-          name: `${(m.name || m.id).replace(/^(Google|OpenAI|Anthropic|Meta|DeepSeek|Qwen|Mistral):\s*/i, '')}${isFree(m) && !(m.name || '').toLowerCase().includes('free') ? ' (Free)' : ''}`,
+          name: (m.name || m.id).replace(/^(Google|OpenAI|Anthropic|Meta|DeepSeek|Qwen|Mistral):\s*/i, '').replace(/\s*\(free\)/i, ''),
           isVision: Array.isArray(m.architecture?.input_modalities) ? m.architecture.input_modalities.includes('image') : false,
           free: isFree(m)
-        });
-
-        const formatted = json.data.map(fmt);
+        }));
         setAllLiveModels(formatted);
 
-        const pick = (fn, limit = 15) => formatted.filter(fn).slice(0, limit);
-        const freeModels = [
-          { id: 'openrouter/free', name: 'Auto-Router (Fast & Free)', isVision: true, free: true },
-          ...formatted.filter(m => m.free && m.id !== 'openrouter/free').slice(0, 20)
-        ];
+        const freeModels = [{ id: 'openrouter/free', name: 'Auto-Router (Fast)', isVision: true, free: true }, ...formatted.filter(m => m.free && m.id !== 'openrouter/free').slice(0, 20)];
         const googleModels = [
           ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini') || m.name.toLowerCase().includes('hydrogen')) && m.free),
           ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini')) && !m.free)
         ].slice(0, 15);
 
+        const pick = (fn) => formatted.filter(fn).slice(0, 10);
         const liveProviders = [
-          { id: 'free_tier', name: `🌟 100% Free (${freeModels.length})`, models: freeModels },
-          { id: 'google', name: `Google & Gemini (${googleModels.length})`, models: googleModels },
-          { id: 'openai', name: 'OpenAI', models: pick(m => m.id.startsWith('openai/'), 10) },
-          { id: 'anthropic', name: 'Anthropic (Claude)', models: pick(m => m.id.startsWith('anthropic/'), 10) },
-          { id: 'deepseek', name: 'DeepSeek', models: pick(m => m.id.startsWith('deepseek/'), 10) },
-          { id: 'meta', name: 'Meta (Llama)', models: pick(m => m.id.startsWith('meta-llama/'), 10) },
-          { id: 'alibaba', name: 'Alibaba (Qwen)', models: pick(m => m.id.startsWith('qwen/'), 10) }
+          { id: 'free_tier', name: '🌟 Free', models: freeModels },
+          { id: 'google', name: 'Google', models: googleModels },
+          { id: 'openai', name: 'OpenAI', models: pick(m => m.id.startsWith('openai/')) },
+          { id: 'anthropic', name: 'Claude', models: pick(m => m.id.startsWith('anthropic/')) },
+          { id: 'deepseek', name: 'DeepSeek', models: pick(m => m.id.startsWith('deepseek/')) },
+          { id: 'meta', name: 'Meta', models: pick(m => m.id.startsWith('meta-llama/')) },
+          { id: 'alibaba', name: 'Qwen', models: pick(m => m.id.startsWith('qwen/')) }
         ].filter(p => p.models.length > 0);
 
-        if (liveProviders.length > 0) setProviders(liveProviders);
+        if (liveProviders.length > 0) { setProviders(liveProviders); setIsLiveSynced(true); }
       })
       .catch(() => {});
   }, []);
@@ -273,24 +263,61 @@ export default function App() {
   const toggleDontShowAgain = async () => { const v = !dontShowAgain; setDontShowAgain(v); try { await AsyncStorage.setItem('@council_hide_api_notice', v ? 'true' : 'false'); } catch (e) {} };
   const syncChatsWithStorage = async (list) => { setSavedChats(list); try { await AsyncStorage.setItem('@council_chats_v1', JSON.stringify(list)); } catch (e) {} };
 
-  const openMenu = () => { setIsModalVisible(true); Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(); };
-  const closeMenu = () => { Animated.timing(slideAnim, { toValue: -350, duration: 250, useNativeDriver: true }).start(() => setIsModalVisible(false)); };
-  const startNewChat = () => { setActiveChatId(null); setMessages([]); setInputText(''); setAttachments([]); closeMenu(); };
-  const selectChat = (chat) => { setActiveChatId(chat.id); setMessages(chat.messages); setAttachments([]); closeMenu(); };
+  const openMenu = () => { setIsModalVisible(true); Animated.timing(slideAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start(); };
+  const closeMenu = () => { Animated.timing(slideAnim, { toValue: -350, duration: 220, useNativeDriver: true }).start(() => setIsModalVisible(false)); };
+
+  const openModelSheet = () => {
+    setModelSearch('');
+    setShowModels(true);
+    sheetY.setValue(500);
+    sheetFade.setValue(0);
+    Animated.parallel([
+      Animated.timing(sheetFade, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.spring(sheetY, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true })
+    ]).start();
+  };
+
+  const closeModelSheet = () => {
+    Animated.parallel([
+      Animated.timing(sheetFade, { toValue: 0, duration: 160, useNativeDriver: true }),
+      Animated.timing(sheetY, { toValue: 500, duration: 200, useNativeDriver: true })
+    ]).start(() => setShowModels(false));
+  };
+
+  const switchCompanyTab = (id) => {
+    setSelectedCompanyId(id);
+    listFade.setValue(0.3);
+    Animated.timing(listFade, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+  };
+
+  const startNewChat = () => { setActiveChatId(null); setMessages([]); setInputText(''); setAttachments([]); setEditingIndex(null); closeMenu(); };
+  const selectChat = (chat) => { setActiveChatId(chat.id); setMessages(chat.messages); setAttachments([]); setEditingIndex(null); closeMenu(); };
 
   const deleteChat = async (id, e) => {
     e.stopPropagation();
     const updated = savedChats.filter(c => c.id !== id);
-    if (activeChatId === id) { setActiveChatId(null); setMessages([]); }
+    if (activeChatId === id) { setActiveChatId(null); setMessages([]); setEditingIndex(null); }
     await syncChatsWithStorage(updated);
   };
 
+  // --- START EDITING A USER MESSAGE ---
+  const startEdit = (index) => {
+    const target = messages[index];
+    if (!target || target.role !== 'user') return;
+    setEditingIndex(index);
+    setInputText(target.content || '');
+    if (target.images && target.images.length > 0) {
+      setAttachments(target.images.map((uri, i) => ({ type: 'image', preview: uri, frames: [uri], label: `Media ${i + 1}` })));
+    } else {
+      setAttachments([]);
+    }
+  };
+
+  const cancelEdit = () => { setEditingIndex(null); setInputText(''); setAttachments([]); };
+
   const handlePickMedia = () => {
     setMediaNotice('');
-    if (typeof document === 'undefined') {
-      setMediaNotice('⚠️ Media attachments work on the live web app (tessarc.vercel.app).');
-      return;
-    }
+    if (typeof document === 'undefined') { setMediaNotice('⚠️ Media attachments work on tessarc.vercel.app web.'); return; }
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*,video/*';
@@ -299,21 +326,17 @@ export default function App() {
       if (!file) return;
       try {
         if (file.type.startsWith('image/')) {
-          setMediaNotice('Processing image...');
+          setMediaNotice('Compressing image...');
           const compressed = await compressImage(file);
           setAttachments(prev => [...prev, { type: 'image', preview: compressed, frames: [compressed], label: 'Photo' }]);
           setMediaNotice('');
         } else if (file.type.startsWith('video/')) {
-          setMediaNotice('Checking video length & extracting frames...');
+          setMediaNotice('Extracting frames (70s max)...');
           const { frames, duration } = await processVideo(file);
-          setAttachments(prev => [...prev, { type: 'video', preview: frames[0], frames, label: `🎬 ${duration}s Video` }]);
+          setAttachments(prev => [...prev, { type: 'video', preview: frames[0], frames, label: `🎬 ${duration}s` }]);
           setMediaNotice('');
-        } else {
-          setMediaNotice('⚠️ Please select an image or video.');
-        }
-      } catch (err) {
-        setMediaNotice(`⚠️ ${err.message}`);
-      }
+        } else { setMediaNotice('⚠️ Select an image or video.'); }
+      } catch (err) { setMediaNotice(`⚠️ ${err.message}`); }
     };
     input.click();
   };
@@ -329,10 +352,14 @@ export default function App() {
     const userText = inputText.trim() || (hasVideo ? 'What is happening in this video?' : 'Analyze this image.');
     
     const newUserMsg = { role: 'user', content: userText, images: allFrames };
-    const chatHistory = [...messages, newUserMsg];
+    // Rewind conversation if editing a previous message!
+    const baseHistory = editingIndex !== null ? messages.slice(0, editingIndex) : messages;
+    const chatHistory = [...baseHistory, newUserMsg];
+
     setMessages(chatHistory);
     setInputText('');
     setAttachments([]);
+    setEditingIndex(null);
     setIsLoading(true);
 
     const isClaudeModel = selectedModel.id.includes('claude');
@@ -346,68 +373,34 @@ export default function App() {
     }
 
     const attemptFetch = async () => {
-      let systemPrompt = `You are Tessarc, a brilliant, witty, charismatic AI assistant powered by ${selectedModel.name}. Use emojis naturally 😂✨. When asked to create files or write code, ALWAYS put the filename in the code header like \`\`\`lua:speed.lua or \`\`\`html:index.html so the user can download it. Do not use markdown asterisks (**) in regular text.`;
+      let systemPrompt = `You are Tessarc, a brilliant, witty, charismatic AI assistant powered by ${selectedModel.name}. Use emojis naturally 😂✨. When creating files or writing code, ALWAYS put the filename in the code header like \`\`\`lua:speed.lua or \`\`\`html:index.html so the user can download it. Do not use markdown asterisks (**) in regular text.`;
       if (userContext.trim() !== '') systemPrompt += ` User Context: ${userContext}`;
 
       if (isClaudeModel && anthropicKey.trim()) {
-        const formattedMsgs = chatHistory.map(m => {
-          if (m.images && m.images.length > 0) {
-            return {
-              role: m.role,
-              content: [
-                ...m.images.map(url => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: url.split(',')[1] } })),
-                { type: 'text', text: m.content }
-              ]
-            };
-          }
-          return { role: m.role, content: m.content };
-        });
+        const formattedMsgs = chatHistory.map(m => m.images?.length ? ({
+          role: m.role,
+          content: [...m.images.map(url => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: url.split(',')[1] } })), { type: 'text', text: m.content }]
+        }) : ({ role: m.role, content: m.content }));
 
         const res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
-          headers: {
-            "x-api-key": anthropicKey.trim(),
-            "anthropic-version": "2023-06-05",
-            "content-type": "application/json",
-            "anthropic-dangerous-direct-browser-access": "true"
-          },
-          body: JSON.stringify({
-            model: selectedModel.id.includes('3.7') ? 'claude-3-7-sonnet-20250219' : 'claude-3-5-sonnet-20241022',
-            max_tokens: 4000,
-            system: systemPrompt,
-            messages: formattedMsgs
-          })
+          headers: { "x-api-key": anthropicKey.trim(), "anthropic-version": "2023-06-05", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
+          body: JSON.stringify({ model: selectedModel.id.includes('3.7') ? 'claude-3-7-sonnet-20250219' : 'claude-3-5-sonnet-20241022', max_tokens: 4000, system: systemPrompt, messages: formattedMsgs })
         });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data?.error?.message || 'Anthropic API Error');
         return data.content[0].text;
       }
 
-      const openRouterMsgs = chatHistory.map(m => {
-        if (m.images && m.images.length > 0) {
-          return {
-            role: m.role,
-            content: [
-              { type: 'text', text: m.content },
-              ...m.images.map(url => ({ type: 'image_url', image_url: { url } }))
-            ]
-          };
-        }
-        return { role: m.role, content: m.content };
-      });
+      const openRouterMsgs = chatHistory.map(m => m.images?.length ? ({
+        role: m.role,
+        content: [{ type: 'text', text: m.content }, ...m.images.map(url => ({ type: 'image_url', image_url: { url } }))]
+      }) : ({ role: m.role, content: m.content }));
 
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey.trim() || anthropicKey.trim()}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://tessarc.vercel.app",
-          "X-Title": "Tessarc"
-        },
-        body: JSON.stringify({
-          model: selectedModel.id,
-          messages: [{ role: "system", content: systemPrompt }, ...openRouterMsgs]
-        })
+        headers: { "Authorization": `Bearer ${apiKey.trim() || anthropicKey.trim()}`, "Content-Type": "application/json", "HTTP-Referer": "https://tessarc.vercel.app", "X-Title": "Tessarc" },
+        body: JSON.stringify({ model: selectedModel.id, messages: [{ role: "system", content: systemPrompt }, ...openRouterMsgs] })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) throw new Error(data?.error?.message || 'API Error');
@@ -420,7 +413,7 @@ export default function App() {
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
     } catch (e) {
-      const tip = allFrames.length > 0 ? '\n\n💡 Tip: Ensure your selected model supports Vision (look for 👁).' : '';
+      const tip = allFrames.length > 0 ? '\n\n💡 Tip: Ensure your selected model supports Vision (👁).' : '';
       setMessages([...chatHistory, { role: 'assistant', content: `⚠️ Error: ${e.message}${tip}` }]);
     } finally {
       setIsLoading(false);
@@ -438,11 +431,10 @@ export default function App() {
   };
 
   const renderMessageContent = (item) => {
-    const content = item.content || '';
-    const parts = content.split(/(```[\s\S]*?```)/g);
+    const parts = (item.content || '').split(/(```[\s\S]*?```)/g);
     return (
       <View>
-        {item.images && item.images.length > 0 && (
+        {item.images?.length > 0 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
             {item.images.map((uri, idx) => <Image key={idx} source={{ uri }} style={styles.msgImageThumb} />)}
           </ScrollView>
@@ -456,9 +448,7 @@ export default function App() {
               lang = (rawLang || 'txt').trim().toLowerCase();
               filename = rawFile ? rawFile.trim() : `tessarc-file.${EXT_MAP[lang] || 'txt'}`;
               code = part.slice(firstBreak + 1, -3).trim();
-            } else {
-              code = part.slice(3, -3).trim();
-            }
+            } else { code = part.slice(3, -3).trim(); }
             return <CodeBlock key={index} code={code} filename={filename} language={lang} />;
           }
           const cleanText = part.replace(/\*\*/g, '');
@@ -496,23 +486,27 @@ export default function App() {
     );
   }
 
-  const searchMatches = modelSearch.trim()
+  const activeProvider = providers.find(p => p.id === selectedCompanyId) || providers[0];
+  const displayedModels = modelSearch.trim()
     ? (allLiveModels.length > 0 ? allLiveModels : providers.flatMap(p => p.models))
         .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()) || m.id.toLowerCase().includes(modelSearch.toLowerCase()))
-        .slice(0, 20)
-    : [];
+        .slice(0, 25)
+    : activeProvider.models;
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
       <View style={styles.header}>
         <TouchableOpacity onPress={openMenu}><Text style={styles.headerIcon}>☰</Text></TouchableOpacity>
-        <TouchableOpacity onPress={() => { setSelectedCompany(null); setModelSearch(''); setShowModels(!showModels); }} style={styles.modelBtn}>
-          <Text style={styles.modelBtnText} numberOfLines={1}>{selectedModel.name} ▾</Text>
+        <TouchableOpacity onPress={openModelSheet} style={styles.modelBtn} activeOpacity={0.7}>
+          <View style={[styles.liveDot, { backgroundColor: selectedModel.free ? '#4ADE80' : '#4A90E2' }]} />
+          <Text style={styles.modelBtnText} numberOfLines={1}>{selectedModel.name}</Text>
+          <Text style={styles.modelBtnChevron}>▾</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={startNewChat}><Text style={styles.headerIcon}>＋</Text></TouchableOpacity>
       </View>
 
+      {/* ONBOARDING KEY MODAL */}
       <Modal visible={showNoticeModal && !apiKey && !anthropicKey && !dontShowAgain} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.noticeCard}>
@@ -529,67 +523,78 @@ export default function App() {
         </View>
       </Modal>
 
-      {showModels && (
-        <View style={styles.modelDropdown}>
-          <View style={styles.dropdownHeader}>
-            {selectedCompany && !modelSearch.trim() ? (
-              <TouchableOpacity onPress={() => setSelectedCompany(null)} style={styles.backRow}>
-                <Text style={styles.backArrow}>‹</Text>
-                <Text style={styles.dropdownHeaderTitle}>{selectedCompany.name}</Text>
-              </TouchableOpacity>
-            ) : (
-              <Text style={styles.dropdownHeaderTitle}>{modelSearch.trim() ? 'Search Results' : 'Select Provider'}</Text>
+      {/* ANIMATED DYNAMIC MODEL BOTTOM SHEET */}
+      <Modal visible={showModels} transparent animationType="none" onRequestClose={closeModelSheet}>
+        <Animated.View style={[styles.sheetBackdrop, { opacity: sheetFade }]}>
+          <Pressable style={{ flex: 1 }} onPress={closeModelSheet} />
+          <Animated.View style={[styles.sheetContainer, { transform: [{ translateY: sheetY }] }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={styles.sheetTitle}>Select Model</Text>
+                {isLiveSynced && (
+                  <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>● Live</Text></View>
+                )}
+              </View>
+              <TouchableOpacity onPress={closeModelSheet} style={styles.sheetClosePill}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity>
+            </View>
+
+            <TextInput
+              style={styles.sheetSearchInput}
+              value={modelSearch}
+              onChangeText={setModelSearch}
+              placeholder="🔍 Search all models (hydrogen, gemini, claude)..."
+              placeholderTextColor="#666"
+              autoCapitalize="none"
+            />
+
+            {!modelSearch.trim() && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.companyTabsScroll} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
+                {providers.map((p) => {
+                  const active = p.id === activeProvider.id;
+                  return (
+                    <TouchableOpacity key={p.id} onPress={() => switchCompanyTab(p.id)} style={[styles.companyPill, active && styles.companyPillActive]}>
+                      <Text style={[styles.companyPillText, active && styles.companyPillTextActive]}>{p.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             )}
-            <TouchableOpacity onPress={() => { setSelectedCompany(null); setShowModels(false); }}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity>
-          </View>
 
-          <TextInput
-            style={styles.searchModelInput}
-            value={modelSearch}
-            onChangeText={setModelSearch}
-            placeholder="Search models (e.g. hydrogen, gemini)..."
-            placeholderTextColor="#666"
-            autoCapitalize="none"
-          />
-
-          <ScrollView style={{ maxHeight: 260 }} showsVerticalScrollIndicator={false}>
-            {modelSearch.trim() ? (
-              searchMatches.length === 0 ? (
+            <Animated.ScrollView style={[styles.sheetList, { opacity: listFade }]} showsVerticalScrollIndicator={false}>
+              {displayedModels.length === 0 ? (
                 <Text style={styles.emptySearchText}>No models found for "{modelSearch}"</Text>
               ) : (
-                searchMatches.map((m) => {
+                displayedModels.map((m) => {
                   const isSelected = selectedModel.id === m.id;
                   return (
-                    <TouchableOpacity key={m.id} style={[styles.modelRow, isSelected && styles.selectedModelRow]} onPress={() => { setSelectedModel(m); setSelectedCompany(null); setShowModels(false); }}>
-                      <Text style={[styles.modelRowText, isSelected && styles.selectedModelRowText]} numberOfLines={1}>{m.name}{m.isVision ? ' 👁' : ''}</Text>
-                      {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                    <TouchableOpacity
+                      key={m.id}
+                      style={[styles.modelCard, isSelected && styles.modelCardActive]}
+                      onPress={() => { setSelectedModel(m); closeModelSheet(); }}
+                      activeOpacity={0.75}
+                    >
+                      <View style={{ flex: 1, marginRight: 10 }}>
+                        <Text style={[styles.modelCardTitle, isSelected && { color: '#FFF' }]} numberOfLines={1}>{m.name}</Text>
+                        <Text style={styles.modelCardSub} numberOfLines={1}>{m.id}</Text>
+                      </View>
+                      <View style={styles.modelBadges}>
+                        {m.isVision && <View style={styles.visionBadge}><Text style={styles.visionBadgeText}>👁</Text></View>}
+                        {m.free && <View style={styles.freeBadge}><Text style={styles.freeBadgeText}>FREE</Text></View>}
+                        {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                      </View>
                     </TouchableOpacity>
                   );
                 })
-              )
-            ) : !selectedCompany ? (
-              providers.map((provider) => (
-                <TouchableOpacity key={provider.id} style={styles.providerRow} onPress={() => setSelectedCompany(provider)}>
-                  <Text style={styles.providerRowText}>{provider.name}</Text>
-                  <Text style={styles.providerChevron}>›</Text>
-                </TouchableOpacity>
-              ))
-            ) : (
-              selectedCompany.models.map((m) => {
-                const isSelected = selectedModel.id === m.id;
-                return (
-                  <TouchableOpacity key={m.id} style={[styles.modelRow, isSelected && styles.selectedModelRow]} onPress={() => { setSelectedModel(m); setSelectedCompany(null); setShowModels(false); }}>
-                    <Text style={[styles.modelRowText, isSelected && styles.selectedModelRowText]} numberOfLines={1}>{m.name}{m.isVision ? ' 👁' : ''}</Text>
-                    {isSelected && <Text style={styles.checkmark}>✓</Text>}
-                  </TouchableOpacity>
-                );
-              })
-            )}
-          </ScrollView>
-        </View>
-      )}
+              )}
+              <View style={{ height: 30 }} />
+            </Animated.ScrollView>
+          </Animated.View>
+        </Animated.View>
+      </Modal>
 
-      <Modal visible={isModalVisible} transparent={true} animationType="fade">
+      {/* DRAWER MENU */}
+      <Modal visible={isModalVisible} transparent animationType="fade">
         <View style={styles.menuOverlay}>
           <Animated.View style={[styles.menuContent, { transform: [{ translateX: slideAnim }] }]}>
             <TouchableOpacity style={styles.newChatBtn} onPress={startNewChat}><Text style={styles.newChatBtnText}>＋ New Chat</Text></TouchableOpacity>
@@ -608,17 +613,40 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* CHAT INTERFACE */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'padding'} style={{ flex: 1 }}>
         <FlatList
           key="chat-list"
           data={isLoading ? [...messages, { role: 'thinking' }] : messages}
           keyExtractor={(_, i) => i.toString()}
-          renderItem={({ item }) => item.role === 'thinking' ? <ThinkingIndicator /> : <View style={item.role === 'user' ? styles.userMsg : styles.aiMsg}>{renderMessageContent(item)}</View>}
+          renderItem={({ item, index }) => {
+            if (item.role === 'thinking') return <ThinkingIndicator />;
+            const isUser = item.role === 'user';
+            return (
+              <AnimatedBubble style={isUser ? styles.userMsgWrap : styles.aiMsg}>
+                <View style={isUser ? [styles.userMsg, editingIndex === index && styles.editingBubble] : null}>
+                  {renderMessageContent(item)}
+                </View>
+                {isUser && !isLoading && (
+                  <TouchableOpacity onPress={() => startEdit(index)} style={styles.editTrigger}>
+                    <Text style={styles.editTriggerText}>✎ Edit</Text>
+                  </TouchableOpacity>
+                )}
+              </AnimatedBubble>
+            );
+          }}
           contentContainerStyle={{ padding: 20, flexGrow: 1, justifyContent: 'flex-end' }}
           ListEmptyComponent={() => <View style={styles.emptyChat}><Text style={styles.emptyLogo}>✧</Text><Text style={styles.emptyChatText}>How can I help?</Text></View>}
         />
 
         {mediaNotice ? <Text style={styles.mediaNoticeText}>{mediaNotice}</Text> : null}
+
+        {editingIndex !== null && (
+          <View style={styles.editingBanner}>
+            <Text style={styles.editingBannerText}>✎ Editing message (rewinds chat below)</Text>
+            <TouchableOpacity onPress={cancelEdit}><Text style={styles.editingCancelText}>Cancel ✕</Text></TouchableOpacity>
+          </View>
+        )}
 
         {attachments.length > 0 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.previewBar}>
@@ -636,8 +664,10 @@ export default function App() {
 
         <View style={styles.inputContainer}>
           <TouchableOpacity style={styles.attachBtn} onPress={handlePickMedia}><Text style={styles.attachTxt}>📎</Text></TouchableOpacity>
-          <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder="Message..." placeholderTextColor="#666" />
-          <TouchableOpacity style={styles.sendBtn} onPress={sendMessage} disabled={isLoading}><Text style={[styles.sendTxt, { opacity: isLoading ? 0.3 : 1 }]}>↑</Text></TouchableOpacity>
+          <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : "Message..."} placeholderTextColor="#666" />
+          <TouchableOpacity style={[styles.sendBtn, editingIndex !== null && { backgroundColor: '#4A90E2' }]} onPress={sendMessage} disabled={isLoading}>
+            <Text style={[styles.sendTxt, { opacity: isLoading ? 0.3 : 1, color: editingIndex !== null ? '#FFF' : '#000' }]}>{editingIndex !== null ? '✓' : '↑'}</Text>
+          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -646,27 +676,44 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#111' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#111' },
   headerIcon: { color: '#FFF', fontSize: 24, padding: 5 },
   headerTitle: { color: '#FFF', fontSize: 18, fontWeight: '700' },
-  modelBtn: { backgroundColor: '#111', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, maxWidth: 210 },
-  modelBtnText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
-  modelDropdown: { backgroundColor: '#161618', position: 'absolute', top: 70, alignSelf: 'center', zIndex: 20, borderRadius: 18, width: 285, borderWidth: 1, borderColor: '#2A2A2E', overflow: 'hidden' },
-  dropdownHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#222', backgroundColor: '#1C1C1F' },
-  dropdownHeaderTitle: { color: '#FFF', fontSize: 13, fontWeight: '700' },
-  dropdownCloseBtn: { color: '#888', fontSize: 14, padding: 4 },
-  searchModelInput: { backgroundColor: '#101012', color: '#FFF', fontSize: 13, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222' },
-  emptySearchText: { color: '#666', fontSize: 13, textAlign: 'center', padding: 20 },
-  backRow: { flexDirection: 'row', alignItems: 'center' },
-  backArrow: { color: '#4A90E2', fontSize: 20, fontWeight: '800', marginRight: 6 },
-  providerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#202022' },
-  providerRowText: { color: '#DDD', fontSize: 14, fontWeight: '600' },
-  providerChevron: { color: '#555', fontSize: 18 },
-  modelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#202022' },
-  selectedModelRow: { backgroundColor: '#202026' },
-  modelRowText: { color: '#CCC', fontSize: 13, flex: 1, marginRight: 8 },
-  selectedModelRowText: { color: '#FFF', fontWeight: '700' },
-  checkmark: { color: '#4A90E2', fontSize: 14, fontWeight: 'bold' },
+  modelBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#141416', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 24, maxWidth: 225, borderWidth: 1, borderColor: '#252529' },
+  liveDot: { width: 7, height: 7, borderRadius: 4, marginRight: 8 },
+  modelBtnText: { color: '#FFF', fontSize: 13, fontWeight: '600', flexShrink: 1 },
+  modelBtnChevron: { color: '#777', fontSize: 12, marginLeft: 6 },
+
+  // ANIMATED BOTTOM SHEET
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end' },
+  sheetContainer: { backgroundColor: '#111114', borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderColor: '#27272C', maxHeight: '78%', paddingTop: 10 },
+  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#3A3A40', alignSelf: 'center', marginBottom: 12 },
+  sheetHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 12 },
+  sheetTitle: { color: '#FFF', fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
+  liveBadge: { backgroundColor: '#112E1D', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1, borderColor: '#1E4D31' },
+  liveBadgeText: { color: '#4ADE80', fontSize: 10, fontWeight: '800' },
+  sheetClosePill: { backgroundColor: '#1D1D22', width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
+  dropdownCloseBtn: { color: '#AAA', fontSize: 13, fontWeight: 'bold' },
+  sheetSearchInput: { backgroundColor: '#1A1A1F', color: '#FFF', fontSize: 14, marginHorizontal: 16, marginBottom: 12, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: '#26262C' },
+  companyTabsScroll: { maxHeight: 42, marginBottom: 10 },
+  companyPill: { backgroundColor: '#1B1B20', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#28282E', justifyContent: 'center' },
+  companyPillActive: { backgroundColor: '#FFF', borderColor: '#FFF' },
+  companyPillText: { color: '#AAA', fontSize: 13, fontWeight: '600' },
+  companyPillTextActive: { color: '#000', fontWeight: '800' },
+  sheetList: { paddingHorizontal: 16 },
+  emptySearchText: { color: '#666', fontSize: 14, textAlign: 'center', padding: 30 },
+  modelCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#17171B', padding: 14, borderRadius: 16, marginBottom: 8, borderWidth: 1, borderColor: '#222228' },
+  modelCardActive: { backgroundColor: '#1E2330', borderColor: '#4A90E2' },
+  modelCardTitle: { color: '#E2E2E6', fontSize: 15, fontWeight: '600', marginBottom: 2 },
+  modelCardSub: { color: '#5A5A62', fontSize: 11 },
+  modelBadges: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  visionBadge: { backgroundColor: '#22222A', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 },
+  visionBadgeText: { fontSize: 11 },
+  freeBadge: { backgroundColor: '#123321', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
+  freeBadgeText: { color: '#4ADE80', fontSize: 10, fontWeight: '800' },
+  checkmark: { color: '#4A90E2', fontSize: 15, fontWeight: 'bold', marginLeft: 4 },
+
+  // DRAWER & SETTINGS
   menuOverlay: { flex: 1, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)' },
   menuContent: { width: '80%', backgroundColor: '#0A0A0A', padding: 20, paddingTop: 50, borderRightWidth: 1, borderRightColor: '#222' },
   menuCloseArea: { flex: 1 }, 
@@ -690,6 +737,8 @@ const styles = StyleSheet.create({
   linkButton: { backgroundColor: '#1C1C1E', paddingVertical: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
   linkButtonText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
   contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#222', textAlignVertical: 'top' },
+
+  // NOTICE MODAL
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
   noticeCard: { backgroundColor: '#141416', width: '100%', borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
   noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
@@ -705,11 +754,20 @@ const styles = StyleSheet.create({
   checkboxLabel: { color: '#888', fontSize: 13 },
   noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
   noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
+
+  // CHAT & EDITING
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyLogo: { fontSize: 40, color: '#333' },
   emptyChatText: { color: '#555', fontSize: 18 },
-  userMsg: { alignSelf: 'flex-end', backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, marginVertical: 8, maxWidth: '85%' },
-  aiMsg: { alignSelf: 'flex-start', padding: 16, marginVertical: 8, maxWidth: '95%' },
+  userMsgWrap: { alignSelf: 'flex-end', alignItems: 'flex-end', marginVertical: 8, maxWidth: '85%' },
+  userMsg: { backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, borderWidth: 1, borderColor: '#222' },
+  editingBubble: { borderColor: '#4A90E2', backgroundColor: '#162030' },
+  editTrigger: { paddingTop: 5, paddingHorizontal: 6 },
+  editTriggerText: { color: '#555', fontSize: 12, fontWeight: '600' },
+  editingBanner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#131C2B', paddingHorizontal: 18, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#233554' },
+  editingBannerText: { color: '#7BB1F5', fontSize: 12, fontWeight: '600' },
+  editingCancelText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
+  aiMsg: { alignSelf: 'flex-start', paddingVertical: 12, paddingHorizontal: 4, marginVertical: 6, maxWidth: '96%' },
   msgText: { color: '#FFF', fontSize: 16, lineHeight: 26 },
   msgImageThumb: { width: 90, height: 90, borderRadius: 12, marginRight: 8, backgroundColor: '#111' },
   codeContainer: { backgroundColor: '#0D0D10', borderRadius: 14, borderWidth: 1, borderColor: '#222', marginVertical: 10, overflow: 'hidden' },
