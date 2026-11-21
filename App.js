@@ -94,13 +94,20 @@ const cleanLinksAndExtractSources = (rawText, annotations = [], extraSources = [
     }
   };
   (annotations || []).forEach(a => { if (a?.url_citation?.url) addSource(a.url_citation.url, a.url_citation.title); });
+
+  const isDomainOrNum = (lbl) => /^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(lbl.trim()) || /^\d+$/.test(lbl.trim());
   const parts = (rawText || '').split(/(```[\s\S]*?```)/g);
   const text = parts.map(part => {
     if (part.startsWith('```')) return part;
     let p = part.replace(/\(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)\)/g, (_, lbl, url) => { addSource(url, lbl); return ''; });
-    p = p.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, lbl, url) => { addSource(url, lbl); return lbl; });
+    p = p.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, lbl, url) => {
+      addSource(url, lbl);
+      return isDomainOrNum(lbl) ? '' : lbl;
+    });
     p = p.replace(/(https?:\/\/[^\s]+)/g, (url) => { addSource(url); return ''; });
-    return p.replace(/[ \t]{2,}/g, ' ');
+    // Strip standalone orphan domain lines like "wikipedia.org" at the end
+    p = p.split('\n').filter(line => !/^([a-z0-9-]+\.)+[a-z]{2,}\.?$/i.test(line.trim())).join('\n');
+    return p.replace(/[ \t]{2,}/g, ' ').replace(/\(\s*\)/g, '');
   }).join('').trim();
   return { text, sources };
 };
@@ -327,7 +334,6 @@ export default function App() {
   const listFade = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Fix browser tab title from 'actual-chatbot' to 'Tessarc'
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       document.title = 'Tessarc — Multi-Model AI Workspace';
     }
@@ -491,7 +497,7 @@ export default function App() {
 
     const attemptFetch = async (msgsToSend, useWebPlugin) => {
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
-      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. When creating files/code, put the filename in the code header like \`\`\`lua:speed.lua. NEVER invent random stock photo URLs or paste raw URLs in paragraphs.\nLIVE TOOLS: If asked for current weather/forecast in a city and you don't already have it, reply ONLY with: [[WEATHER:CityName]]. If asked for factual lookups you aren't sure about, reply ONLY with: [[SEARCH:query]].`;
+      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. If the user just greets you (like "Hello"), greet them back warmly—do NOT search or bring up unrelated trivia. When creating files/code, put the filename in the code header like \`\`\`lua:speed.lua. NEVER write website domain names (like wikipedia.org) or raw URLs in your reply text—sources are displayed separately by the UI.\nLIVE TOOLS: If asked for current weather/forecast in a city and you don't already have it, reply ONLY with: [[WEATHER:CityName]]. If asked for factual lookups you aren't sure about, reply ONLY with: [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       if (isClaudeModel && anthropicKey.trim()) {
@@ -899,8 +905,6 @@ const styles = StyleSheet.create({
   checkboxLabel: { color: '#888', fontSize: 13 },
   noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
   noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
-
-  // RESPONSIVE EMPTY HERO + FACTUAL TRUST SIGNALS
   chatScrollContent: { padding: 20, flexGrow: 1, justifyContent: 'flex-end' },
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 20 },
   heroOrb: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#14141A', borderWidth: 1, borderColor: '#343440', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
@@ -917,7 +921,6 @@ const styles = StyleSheet.create({
   starterIcon: { color: '#4A90E2', fontSize: 15, fontWeight: '800', marginBottom: 6 },
   starterTitle: { color: '#FFF', fontSize: 13, fontWeight: '700', marginBottom: 2 },
   starterSub: { color: '#888', fontSize: 11 },
-
   thinkingCard: { alignSelf: 'flex-start', backgroundColor: '#121215', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, borderWidth: 1, borderColor: '#222228', marginVertical: 8 },
   thinkingText: { color: '#9CC2F7', fontSize: 13, fontWeight: '600' },
   userMsgWrap: { alignSelf: 'flex-end', alignItems: 'flex-end', marginVertical: 8, maxWidth: '85%' },
@@ -952,7 +955,6 @@ const styles = StyleSheet.create({
   previewLabel: { color: '#CCC', fontSize: 12, fontWeight: '600', marginRight: 8 },
   removeAttBtn: { padding: 4 },
   removeAttText: { color: '#888', fontSize: 14, fontWeight: 'bold' },
-
   inputOuter: { borderTopWidth: 1, borderTopColor: '#1C1C24', backgroundColor: '#000' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingBottom: 20 },
   attachBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#22222A', justifyContent: 'center', alignItems: 'center', marginRight: 6, borderWidth: 1, borderColor: '#3E3E4A' },
