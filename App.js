@@ -258,7 +258,6 @@ const ThinkingIndicator = ({ statusText, webActive }) => {
   );
 };
 
-// --- DISTINCTIVE TESSARC FILE ATTACHMENT CARD ---
 const FileCard = ({ filename, content, onPreview }) => {
   const [saved, setSaved] = useState(false);
   const ext = (filename.split('.').pop() || 'FILE').toUpperCase().slice(0, 4);
@@ -286,7 +285,6 @@ const FileCard = ({ filename, content, onPreview }) => {
   );
 };
 
-// --- INLINE CODE BLOCK (FOR NORMAL SCRIPT REQUESTS) ---
 const CodeBlock = ({ code, filename, language }) => {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -333,8 +331,8 @@ export default function App() {
   const [webSearchOn, setWebSearchOn] = useState(false);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_PROVIDERS[0].models[0]); 
 
-  const [previewFile, setPreviewFile] = useState(null); // { filename, content }
-  const [previewTab, setPreviewTab] = useState('code'); // 'code' or 'run'
+  const [previewFile, setPreviewFile] = useState(null);
+  const [previewTab, setPreviewTab] = useState('code');
   const [previewCopied, setPreviewCopied] = useState(false);
 
   const [attachments, setAttachments] = useState([]);
@@ -502,7 +500,7 @@ export default function App() {
 
     const attemptFetch = async (msgsToSend, useWebPlugin) => {
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
-      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. If the user just greets you, greet them back warmly.\nCODE VS FILE RULE:\n1) If the user asks for a script or code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`) in the chat.\n2) ONLY if the user explicitly asks to "put it in a file", "create a file", or "give me a file", wrap the entire file content inside [[[FILE:filename.ext]]] and [[[/FILE]]] tags (e.g. [[[FILE:speed.lua]]]\n...\n[[[/FILE]]]). Never wrap the same code in both!\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: For live weather, reply ONLY with [[WEATHER:CityName]]. For factual lookups, reply ONLY with [[SEARCH:query]].`;
+      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. If the user pastes code to analyze or debug, explain/fix the code directly—NEVER run weather or search tools on pasted code.\nCODE VS FILE RULE:\n1) If the user asks for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if the user explicitly asks to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write domain names or raw URLs in your text.\nLIVE TOOLS: Only if the user directly asks for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if the user asks a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       if (isClaudeModel && anthropicKey.trim()) {
@@ -551,17 +549,20 @@ export default function App() {
       }
 
       let extraSources = [];
-      const weatherMatch = result.raw.match(/\[\[WEATHER:(.*?)\]\]/i);
-      const searchMatch = result.raw.match(/\[\[SEARCH:(.*?)\]\]/i);
+      const trimmedRaw = (result.raw || '').trim();
+      // STRICT ANCHORED MATCH: only runs if the entire AI message is a tool command with a real city/query!
+      const weatherMatch = trimmedRaw.match(/^\[\[WEATHER:([^\]\n]+)\]\]$/i);
+      const searchMatch = trimmedRaw.match(/^\[\[SEARCH:([^\]\n]+)\]\]$/i);
+      const isValidArg = (val) => val && val.trim().length > 1 && !/^(\.\.\.|cityname|query|\.\*\?)$/i.test(val.trim());
 
-      if (weatherMatch) {
+      if (weatherMatch && isValidArg(weatherMatch[1])) {
         const city = weatherMatch[1].trim();
         setThinkingStatus(`🌐 Visiting open-meteo.com (${city})...`);
         const liveData = await fetchLiveWeather(city);
         extraSources = liveData.sources;
         setThinkingStatus(`✧ Synthesizing forecast...`);
         result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM LIVE DATA - DO NOT OUTPUT TAGS]\n${liveData.text}\nAnswer naturally!` }], false);
-      } else if (searchMatch) {
+      } else if (searchMatch && isValidArg(searchMatch[1])) {
         const q = searchMatch[1].trim();
         setThinkingStatus(`🌐 Visiting en.wikipedia.org (${q})...`);
         const wikiData = await fetchWikiSearch(q);
@@ -600,14 +601,22 @@ export default function App() {
   };
 
   const renderMessageContent = (item) => {
+    if (item.role === 'user') {
+      return (
+        <View style={{ width: '100%' }}>
+          {item.images?.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+              {item.images.map((uri, idx) => <Image key={idx} source={{ uri }} style={styles.msgImageThumb} />)}
+            </ScrollView>
+          )}
+          <Text style={styles.userMsgText}>{item.content}</Text>
+        </View>
+      );
+    }
+
     const parts = (item.content || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
     return (
-      <View>
-        {item.images?.length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-            {item.images.map((uri, idx) => <Image key={idx} source={{ uri }} style={styles.msgImageThumb} />)}
-          </ScrollView>
-        )}
+      <View style={{ width: '100%' }}>
         {parts.map((part, index) => {
           if (part.startsWith('[[[FILE:')) {
             const m = part.match(/^\[\[\[FILE:(.*?)\]\]\]([\s\S]*?)\[\[\[\/FILE\]\]\]$/);
@@ -704,7 +713,6 @@ export default function App() {
         </View>
       </View>
 
-      {/* FULL-SCREEN FILE PREVIEW & LIVE HTML RUNNER MODAL */}
       <Modal visible={Boolean(previewFile)} animationType="slide" onRequestClose={() => setPreviewFile(null)}>
         <SafeAreaView style={styles.previewModalRoot}>
           <View style={styles.previewModalHeader}>
@@ -719,7 +727,6 @@ export default function App() {
               </TouchableOpacity>
             </View>
           </View>
-
           {previewFile?.isWeb && Platform.OS === 'web' && (
             <View style={styles.previewTabBar}>
               <TouchableOpacity onPress={() => setPreviewTab('run')} style={[styles.previewTabPill, previewTab === 'run' && styles.previewTabActive]}>
@@ -730,7 +737,6 @@ export default function App() {
               </TouchableOpacity>
             </View>
           )}
-
           {previewFile && previewTab === 'run' && previewFile.isWeb && Platform.OS === 'web' ? (
             <View style={{ flex: 1, padding: 12 }}>
               {React.createElement('iframe', {
@@ -999,16 +1005,20 @@ const styles = StyleSheet.create({
   starterSub: { color: '#888', fontSize: 11 },
   thinkingCard: { alignSelf: 'flex-start', backgroundColor: '#121215', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, borderWidth: 1, borderColor: '#222228', marginVertical: 8 },
   thinkingText: { color: '#9CC2F7', fontSize: 13, fontWeight: '600' },
-  userMsgWrap: { alignSelf: 'flex-end', alignItems: 'flex-end', marginVertical: 8, maxWidth: '85%' },
-  userMsg: { backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, borderWidth: 1, borderColor: '#222' },
+
+  // FIXED: Prevents pasted code from clipping off the left side of the bubble!
+  userMsgWrap: { alignSelf: 'flex-end', alignItems: 'flex-end', marginVertical: 8, maxWidth: '88%', width: '88%' },
+  userMsg: { backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, borderWidth: 1, borderColor: '#222', maxWidth: '100%', overflow: 'hidden' },
+  userMsgText: { color: '#FFF', fontSize: 15, lineHeight: 23, flexShrink: 1, ...(Platform.OS === 'web' ? { overflowWrap: 'anywhere', wordBreak: 'break-word' } : {}) },
+
   editingBubble: { borderColor: '#4A90E2', backgroundColor: '#162030' },
   editTrigger: { paddingTop: 5, paddingHorizontal: 6 },
   editTriggerText: { color: '#666', fontSize: 12, fontWeight: '600' },
   editingBanner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#131C2B', paddingHorizontal: 18, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#233554' },
   editingBannerText: { color: '#7BB1F5', fontSize: 12, fontWeight: '600' },
   editingCancelText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
-  aiMsg: { alignSelf: 'flex-start', paddingVertical: 12, paddingHorizontal: 4, marginVertical: 6, maxWidth: '96%' },
-  msgText: { color: '#EAEAEA', fontSize: 16, lineHeight: 26 },
+  aiMsg: { alignSelf: 'flex-start', paddingVertical: 12, paddingHorizontal: 4, marginVertical: 6, width: '100%' },
+  msgText: { color: '#EAEAEA', fontSize: 16, lineHeight: 26, flexShrink: 1, ...(Platform.OS === 'web' ? { overflowWrap: 'anywhere' } : {}) },
   mdHeading: { color: '#FFF', fontSize: 18, fontWeight: '800', marginTop: 8, marginBottom: 4, letterSpacing: -0.2 },
   mdDivider: { height: 1, backgroundColor: '#24242A', marginVertical: 12 },
   msgImageThumb: { width: 90, height: 90, borderRadius: 12, marginRight: 8, backgroundColor: '#111' },
@@ -1016,8 +1026,6 @@ const styles = StyleSheet.create({
   sourcesLabel: { color: '#666', fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 8 },
   sourcePill: { backgroundColor: '#16161B', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, borderWidth: 1, borderColor: '#282830', maxWidth: 190 },
   sourcePillText: { color: '#7BB1F5', fontSize: 12, fontWeight: '600' },
-
-  // TESSARC FILE CARD & FULLSCREEN INSPECTOR MODAL
   fileCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111218', borderRadius: 16, padding: 12, marginVertical: 10, borderWidth: 1, borderColor: '#2A2A35', borderLeftWidth: 4 },
   fileExtBadge: { width: 42, height: 42, borderRadius: 10, backgroundColor: '#181922', borderWidth: 1, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   fileExtText: { fontSize: 11, fontWeight: '900', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
@@ -1038,7 +1046,6 @@ const styles = StyleSheet.create({
   previewTabTxt: { color: '#AAA', fontSize: 12, fontWeight: '700' },
   codeLineRow: { flexDirection: 'row', alignItems: 'flex-start' },
   lineNum: { width: 34, color: '#4A4A55', fontSize: 12, lineHeight: 22, textAlign: 'right', paddingRight: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-
   codeContainer: { backgroundColor: '#0D0D10', borderRadius: 14, borderWidth: 1, borderColor: '#222', marginVertical: 10, overflow: 'hidden' },
   codeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#151518', borderBottomWidth: 1, borderBottomColor: '#202025' },
   codeLang: { color: '#888', fontSize: 12, fontWeight: '700', flex: 1, marginRight: 8 },
