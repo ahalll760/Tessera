@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TextInput, TouchableOpacity, Image,
-  FlatList, SafeAreaView, KeyboardAvoidingView, Platform, 
+  SafeAreaView, KeyboardAvoidingView, Platform, 
   StatusBar, Modal, Pressable, Animated, ScrollView, Linking
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -340,6 +340,8 @@ export default function App() {
   const [showNoticeModal, setShowNoticeModal] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
+  const scrollRef = useRef(null);
+  const abortRef = useRef(null);
   const slideAnim = useRef(new Animated.Value(-350)).current;
   const sheetY = useRef(new Animated.Value(500)).current;
   const sheetFade = useRef(new Animated.Value(0)).current;
@@ -401,7 +403,13 @@ export default function App() {
   const handleAnthropicKeyChange = async (key) => { setAnthropicKey(key); try { await AsyncStorage.setItem('@council_anthropic_key_v1', key.trim()); } catch (e) {} };
   const handleContextChange = async (text) => { setUserContext(text); try { await AsyncStorage.setItem('@council_context_v1', text); } catch (e) {} };
   const toggleDontShowAgain = async () => { const v = !dontShowAgain; setDontShowAgain(v); try { await AsyncStorage.setItem('@council_hide_api_notice', v ? 'true' : 'false'); } catch (e) {} };
-  const syncChatsWithStorage = async (list) => { setSavedChats(list); try { await AsyncStorage.setItem('@council_chats_v1', JSON.stringify(list)); } catch (e) {} };
+  const syncChatsWithStorage = async (list) => {
+    setSavedChats(list);
+    try { await AsyncStorage.setItem('@council_chats_v1', JSON.stringify(list)); } catch (e) {
+      // If localStorage is full, keep only the 12 newest chats so saving never breaks
+      try { await AsyncStorage.setItem('@council_chats_v1', JSON.stringify(list.slice(0, 12))); } catch {}
+    }
+  };
 
   const openMenu = () => { setIsModalVisible(true); Animated.timing(slideAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start(); };
   const closeMenu = () => { Animated.timing(slideAnim, { toValue: -350, duration: 220, useNativeDriver: true }).start(() => setIsModalVisible(false)); };
@@ -426,8 +434,8 @@ export default function App() {
     Animated.timing(listFade, { toValue: 1, duration: 200, useNativeDriver: true }).start();
   };
 
-  const startNewChat = () => { setActiveChatId(null); setMessages([]); setInputText(''); setAttachments([]); setEditingIndex(null); closeMenu(); };
-  const selectChat = (chat) => { setActiveChatId(chat.id); setMessages(chat.messages); setAttachments([]); setEditingIndex(null); closeMenu(); };
+  const startNewChat = () => { if (abortRef.current) abortRef.current.abort(); setActiveChatId(null); setMessages([]); setInputText(''); setAttachments([]); setEditingIndex(null); setIsLoading(false); closeMenu(); };
+  const selectChat = (chat) => { if (abortRef.current) abortRef.current.abort(); setActiveChatId(chat.id); setMessages(chat.messages); setAttachments([]); setEditingIndex(null); setIsLoading(false); closeMenu(); };
 
   const deleteChat = async (id, e) => {
     e.stopPropagation();
@@ -445,6 +453,12 @@ export default function App() {
 
   const cancelEdit = () => { setEditingIndex(null); setInputText(''); setAttachments([]); };
   const handleSelectStarter = (item) => { setInputText(item.prompt); if (item.web) setWebSearchOn(true); };
+
+  const stopGeneration = () => {
+    if (abortRef.current) abortRef.current.abort();
+    setIsLoading(false);
+    setThinkingStatus('');
+  };
 
   const handlePickMedia = () => {
     setMediaNotice('');
@@ -472,7 +486,7 @@ export default function App() {
   };
 
   const sendMessage = async () => {
-    if (!inputText.trim() && attachments.length === 0) return;
+    if ((!inputText.trim() && attachments.length === 0) || isLoading) return;
     setMediaNotice('');
     const currentId = activeChatId || Date.now().toString();
     if (!activeChatId) setActiveChatId(currentId);
@@ -480,7 +494,6 @@ export default function App() {
     const allFrames = attachments.flatMap(a => a.frames);
     const hasVideo = attachments.some(a => a.type === 'video');
     const userText = inputText.trim() || (hasVideo ? 'What is happening in this video?' : 'Analyze this image.');
-    // SMART INTENT: Detects if user asked for a file (even with typos like "downlandable file")
     const userAskedForFile = /\b(create|make|put|give|save|export|send|build|write|in|into|as|download\w*|downland\w*)\b[\s\S]{0,25}\bfile\b/i.test(userText);
     
     const newUserMsg = { role: 'user', content: userText, images: allFrames };
@@ -489,6 +502,7 @@ export default function App() {
 
     setMessages(chatHistory); setInputText(''); setAttachments([]); setEditingIndex(null);
     setThinkingStatus(''); setIsLoading(true);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
 
     const isClaudeModel = selectedModel.id.includes('claude');
     if (isClaudeModel && !anthropicKey.trim() && !apiKey.trim()) {
@@ -500,9 +514,13 @@ export default function App() {
       return setIsLoading(false);
     }
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 40000);
+
     const attemptFetch = async (msgsToSend, useWebPlugin) => {
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
-      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. If the user pastes code to analyze or debug, explain/fix the code directly—NEVER run weather or search tools on pasted code.\nCODE VS FILE RULE:\n1) If the user asks for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if the user explicitly asks to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write domain names or raw URLs in your text.\nLIVE TOOLS: Only if the user directly asks for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if the user asks a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
+      let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally (playful for stories, sharp for code). Use emojis naturally 😂✨. If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       if (isClaudeModel && anthropicKey.trim()) {
@@ -513,12 +531,13 @@ export default function App() {
 
         const res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
+          signal: controller.signal,
           headers: { "x-api-key": anthropicKey.trim(), "anthropic-version": "2023-06-05", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
           body: JSON.stringify({ model: selectedModel.id.includes('3.7') ? 'claude-3-7-sonnet-20250219' : 'claude-3-5-sonnet-20241022', max_tokens: 4000, system: systemPrompt, messages: formattedMsgs })
         });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data?.error?.message || 'Anthropic API Error');
-        return { raw: data.content[0].text, annotations: [] };
+        return { raw: data.content?.[0]?.text || '', annotations: [] };
       }
 
       const openRouterMsgs = msgsToSend.map(m => m.images?.length ? ({
@@ -531,12 +550,13 @@ export default function App() {
 
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
+        signal: controller.signal,
         headers: { "Authorization": `Bearer ${apiKey.trim() || anthropicKey.trim()}`, "Content-Type": "application/json", "HTTP-Referer": "https://tessarc.vercel.app", "X-Title": "Tessarc" },
         body: JSON.stringify(body)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) throw new Error(data?.error?.message || 'API Error');
-      return { raw: data.choices[0].message.content, annotations: data.choices[0].message.annotations || [] };
+      return { raw: data.choices?.[0]?.message?.content || '', annotations: data.choices?.[0]?.message?.annotations || [] };
     };
 
     try {
@@ -544,7 +564,7 @@ export default function App() {
       try {
         result = await attemptFetch(chatHistory, webSearchOn);
       } catch (webErr) {
-        if (webSearchOn && (webErr.message.includes('402') || webErr.message.toLowerCase().includes('credit'))) {
+        if (webErr.name !== 'AbortError' && webSearchOn && (webErr.message.includes('402') || webErr.message.toLowerCase().includes('credit'))) {
           setThinkingStatus('🌐 Switching to free web lookup...');
           result = await attemptFetch(chatHistory, false);
         } else { throw webErr; }
@@ -573,25 +593,39 @@ export default function App() {
       }
 
       const cleaned = cleanLinksAndExtractSources(result.raw, result.annotations, extraSources);
-      const finalHistory = [...chatHistory, { role: 'assistant', content: cleaned.text, sources: cleaned.sources, asFile: userAskedForFile }];
+      const replyContent = cleaned.text || (cleaned.sources.length > 0 ? 'Here are the sources I found:' : '⚠️ Model returned an empty response. Try tapping ✎ Edit or switch models.');
+      const finalHistory = [...chatHistory, { role: 'assistant', content: replyContent, sources: cleaned.sources, asFile: userAskedForFile }];
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
     } catch (e) {
-      const tip = allFrames.length > 0 ? '\n\n💡 Tip: Ensure your selected model supports Vision (👁).' : '';
-      setMessages([...chatHistory, { role: 'assistant', content: `⚠️ Error: ${e.message}${tip}` }]);
+      if (e.name === 'AbortError') {
+        const stoppedHistory = [...chatHistory, { role: 'assistant', content: '⏹ Stopped or timed out. Tap ✎ Edit on your message to retry!' }];
+        setMessages(stoppedHistory);
+      } else {
+        const tip = allFrames.length > 0 ? '\n\n💡 Tip: Ensure your selected model supports Vision (👁).' : '';
+        setMessages([...chatHistory, { role: 'assistant', content: `⚠️ Error: ${e.message}${tip}` }]);
+      }
     } finally {
+      clearTimeout(timeoutId);
+      abortRef.current = null;
       setIsLoading(false); setThinkingStatus('');
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     }
   };
 
   const saveSessionToHistory = (chatId, updatedMessages) => {
-    let list = [...savedChats];
-    const firstUserMsg = updatedMessages.find(m => m.role === 'user');
-    const autoTitle = firstUserMsg ? firstUserMsg.content.slice(0, 28) : 'Conversation';
-    const index = list.findIndex(c => c.id === chatId);
-    if (index >= 0) list[index] = { ...list[index], messages: updatedMessages };
-    else list.unshift({ id: chatId, title: autoTitle, messages: updatedMessages });
-    syncChatsWithStorage(list);
+    setSavedChats(prev => {
+      const list = [...prev];
+      const firstUserMsg = updatedMessages.find(m => m.role === 'user');
+      const autoTitle = firstUserMsg ? firstUserMsg.content.slice(0, 28) : 'Conversation';
+      const index = list.findIndex(c => c.id === chatId);
+      if (index >= 0) list[index] = { ...list[index], messages: updatedMessages };
+      else list.unshift({ id: chatId, title: autoTitle, messages: updatedMessages });
+      AsyncStorage.setItem('@council_chats_v1', JSON.stringify(list)).catch(() => {
+        AsyncStorage.setItem('@council_chats_v1', JSON.stringify(list.slice(0, 12))).catch(() => {});
+      });
+      return list;
+    });
   };
 
   const openFilePreview = (filename, content) => {
@@ -702,7 +736,7 @@ export default function App() {
         .slice(0, 25)
     : activeProvider.models;
   const hasAnyKey = Boolean(apiKey.trim() || anthropicKey.trim());
-  const canSend = (inputText.trim().length > 0 || attachments.length > 0) && !isLoading;
+  const canSend = inputText.trim().length > 0 || attachments.length > 0;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -858,26 +892,37 @@ export default function App() {
         </View>
       </Modal>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'padding'} style={{ flex: 1 }}>
-        <FlatList
-          key="chat-list"
-          data={isLoading ? [...messages, { role: 'thinking' }] : messages}
-          keyExtractor={(_, i) => i.toString()}
-          renderItem={({ item, index }) => {
-            if (item.role === 'thinking') return <ThinkingIndicator statusText={thinkingStatus} webActive={webSearchOn} />;
-            const isUser = item.role === 'user';
-            return (
-              <AnimatedBubble style={isUser ? styles.userMsgWrap : styles.aiMsg}>
-                <View style={isUser ? [styles.userMsg, editingIndex === index && styles.editingBubble] : null}>{renderMessageContent(item)}</View>
-                {isUser && !isLoading && (
-                  <TouchableOpacity onPress={() => startEdit(index)} style={styles.editTrigger}><Text style={styles.editTriggerText}>✎ Edit</Text></TouchableOpacity>
-                )}
-              </AnimatedBubble>
-            );
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <ScrollView
+          ref={scrollRef}
+          style={{ flex: 1 }}
+          contentContainerStyle={[
+            styles.chatScrollContent,
+            styles.desktopCenter,
+            messages.length === 0 && !isLoading && { flexGrow: 1, justifyContent: 'center' }
+          ]}
+          onContentSizeChange={() => {
+            if (messages.length > 0 || isLoading) scrollRef.current?.scrollToEnd({ animated: true });
           }}
-          contentContainerStyle={[styles.chatScrollContent, styles.desktopCenter]}
-          ListEmptyComponent={() => <EmptyHero onSelectPrompt={handleSelectStarter} onOpenSettings={() => setCurrentScreen('settings')} hasKey={hasAnyKey} />}
-        />
+          keyboardShouldPersistTaps="handled"
+        >
+          {messages.length === 0 && !isLoading ? (
+            <EmptyHero onSelectPrompt={handleSelectStarter} onOpenSettings={() => setCurrentScreen('settings')} hasKey={hasAnyKey} />
+          ) : (
+            messages.map((item, index) => {
+              const isUser = item.role === 'user';
+              return (
+                <AnimatedBubble key={`${activeChatId || 'new'}-${index}`} style={isUser ? styles.userMsgWrap : styles.aiMsg}>
+                  <View style={isUser ? [styles.userMsg, editingIndex === index && styles.editingBubble] : null}>{renderMessageContent(item)}</View>
+                  {isUser && !isLoading && (
+                    <TouchableOpacity onPress={() => startEdit(index)} style={styles.editTrigger}><Text style={styles.editTriggerText}>✎ Edit</Text></TouchableOpacity>
+                  )}
+                </AnimatedBubble>
+              );
+            })
+          )}
+          {isLoading && <ThinkingIndicator statusText={thinkingStatus} webActive={webSearchOn} />}
+        </ScrollView>
 
         {mediaNotice ? <Text style={[styles.mediaNoticeText, styles.desktopCenter]}>{mediaNotice}</Text> : null}
 
@@ -907,9 +952,15 @@ export default function App() {
               <Text style={styles.attachTxt}>🌐</Text>
             </TouchableOpacity>
             <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : "Ask Tessarc anything..."} placeholderTextColor="#999" />
-            <TouchableOpacity style={[styles.sendBtn, !canSend && styles.sendBtnIdle, editingIndex !== null && { backgroundColor: '#4A90E2' }]} onPress={sendMessage} disabled={!canSend}>
-              <Text style={[styles.sendTxt, { color: editingIndex !== null ? '#FFF' : (canSend ? '#000' : '#BBB') }]}>{editingIndex !== null ? '✓' : '↑'}</Text>
-            </TouchableOpacity>
+            {isLoading ? (
+              <TouchableOpacity style={[styles.sendBtn, { backgroundColor: '#EF4444' }]} onPress={stopGeneration}>
+                <Text style={[styles.sendTxt, { color: '#FFF', fontSize: 16 }]}>■</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={[styles.sendBtn, !canSend && styles.sendBtnIdle, editingIndex !== null && { backgroundColor: '#4A90E2' }]} onPress={sendMessage} disabled={!canSend}>
+                <Text style={[styles.sendTxt, { color: editingIndex !== null ? '#FFF' : (canSend ? '#000' : '#BBB') }]}>{editingIndex !== null ? '✓' : '↑'}</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -993,7 +1044,7 @@ const styles = StyleSheet.create({
   checkboxLabel: { color: '#888', fontSize: 13 },
   noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
   noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
-  chatScrollContent: { padding: 20, flexGrow: 1, justifyContent: 'flex-end' },
+  chatScrollContent: { padding: 20, paddingBottom: 30 },
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 20 },
   heroOrb: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#14141A', borderWidth: 1, borderColor: '#343440', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
   emptyLogo: { fontSize: 30, color: '#FFF' },
