@@ -480,6 +480,8 @@ export default function App() {
     const allFrames = attachments.flatMap(a => a.frames);
     const hasVideo = attachments.some(a => a.type === 'video');
     const userText = inputText.trim() || (hasVideo ? 'What is happening in this video?' : 'Analyze this image.');
+    // SMART INTENT: Detects if user asked for a file (even with typos like "downlandable file")
+    const userAskedForFile = /\b(create|make|put|give|save|export|send|build|write|in|into|as|download\w*|downland\w*)\b[\s\S]{0,25}\bfile\b/i.test(userText);
     
     const newUserMsg = { role: 'user', content: userText, images: allFrames };
     const baseHistory = editingIndex !== null ? messages.slice(0, editingIndex) : messages;
@@ -550,7 +552,6 @@ export default function App() {
 
       let extraSources = [];
       const trimmedRaw = (result.raw || '').trim();
-      // STRICT ANCHORED MATCH: only runs if the entire AI message is a tool command with a real city/query!
       const weatherMatch = trimmedRaw.match(/^\[\[WEATHER:([^\]\n]+)\]\]$/i);
       const searchMatch = trimmedRaw.match(/^\[\[SEARCH:([^\]\n]+)\]\]$/i);
       const isValidArg = (val) => val && val.trim().length > 1 && !/^(\.\.\.|cityname|query|\.\*\?)$/i.test(val.trim());
@@ -572,7 +573,7 @@ export default function App() {
       }
 
       const cleaned = cleanLinksAndExtractSources(result.raw, result.annotations, extraSources);
-      const finalHistory = [...chatHistory, { role: 'assistant', content: cleaned.text, sources: cleaned.sources }];
+      const finalHistory = [...chatHistory, { role: 'assistant', content: cleaned.text, sources: cleaned.sources, asFile: userAskedForFile }];
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
     } catch (e) {
@@ -614,6 +615,7 @@ export default function App() {
       );
     }
 
+    const mentionedFile = (item.content || '').match(/`?([a-z0-9_-]+\.(?:html?|lua|py|js|jsx|ts|css|json|txt|md|sql|sh))`?/i)?.[1];
     const parts = (item.content || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
     return (
       <View style={{ width: '100%' }}>
@@ -621,7 +623,7 @@ export default function App() {
           if (part.startsWith('[[[FILE:')) {
             const m = part.match(/^\[\[\[FILE:(.*?)\]\]\]([\s\S]*?)\[\[\[\/FILE\]\]\]$/);
             if (m) {
-              const fname = m[1].trim() || 'file.txt';
+              const fname = m[1].trim() || mentionedFile || 'file.txt';
               let fcode = m[2].trim();
               if (fcode.startsWith('```')) {
                 const nl = fcode.indexOf('\n');
@@ -632,13 +634,17 @@ export default function App() {
           }
           if (part.startsWith('```') && part.endsWith('```')) {
             const firstBreak = part.indexOf('\n');
-            let lang = 'txt', filename = 'tessarc-file.txt', code = '';
+            let lang = 'txt', rawFile = null, code = '';
             if (firstBreak !== -1) {
-              const [rawLang, rawFile] = part.slice(3, firstBreak).trim().split(':');
+              const [rawLang, parsedFile] = part.slice(3, firstBreak).trim().split(':');
               lang = (rawLang || 'txt').trim().toLowerCase();
-              filename = rawFile ? rawFile.trim() : `tessarc-file.${EXT_MAP[lang] || 'txt'}`;
+              rawFile = parsedFile ? parsedFile.trim() : null;
               code = part.slice(firstBreak + 1, -3).trim();
             } else { code = part.slice(3, -3).trim(); }
+            const filename = rawFile || mentionedFile || `tessarc-file.${EXT_MAP[lang] || 'txt'}`;
+            if (item.asFile || rawFile) {
+              return <FileCard key={index} filename={filename} content={code} onPreview={() => openFilePreview(filename, code)} />;
+            }
             return <CodeBlock key={index} code={code} filename={filename} language={lang} />;
           }
           return part.trim() ? <View key={index}>{renderRichText(part)}</View> : null;
@@ -1005,12 +1011,9 @@ const styles = StyleSheet.create({
   starterSub: { color: '#888', fontSize: 11 },
   thinkingCard: { alignSelf: 'flex-start', backgroundColor: '#121215', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, borderWidth: 1, borderColor: '#222228', marginVertical: 8 },
   thinkingText: { color: '#9CC2F7', fontSize: 13, fontWeight: '600' },
-
-  // FIXED: Prevents pasted code from clipping off the left side of the bubble!
   userMsgWrap: { alignSelf: 'flex-end', alignItems: 'flex-end', marginVertical: 8, maxWidth: '88%', width: '88%' },
   userMsg: { backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, borderWidth: 1, borderColor: '#222', maxWidth: '100%', overflow: 'hidden' },
   userMsgText: { color: '#FFF', fontSize: 15, lineHeight: 23, flexShrink: 1, ...(Platform.OS === 'web' ? { overflowWrap: 'anywhere', wordBreak: 'break-word' } : {}) },
-
   editingBubble: { borderColor: '#4A90E2', backgroundColor: '#162030' },
   editTrigger: { paddingTop: 5, paddingHorizontal: 6 },
   editTriggerText: { color: '#666', fontSize: 12, fontWeight: '600' },
