@@ -45,10 +45,10 @@ const DEFAULT_PROVIDERS = [
 ];
 
 const STARTER_PROMPTS = [
-  { icon: '</>', title: 'Draft code & export file', sub: 'Python, Lua, HTML & more', prompt: 'Create a clean Python script file to organize my downloads folder' },
+  { icon: '</>', title: 'Create a downloadable file', sub: 'Builds a sleek previewable file', prompt: 'Put a fun retro snake game into a file called snake.html' },
   { icon: '◎', title: 'Check live weather', sub: 'Real-time global forecast', prompt: "What's the weather looking like today in Paris?" },
   { icon: '⊕', title: 'Search the live web', sub: 'Verified source links', prompt: 'What are the biggest AI & tech news stories right now?', web: true },
-  { icon: '✦', title: 'Brainstorm startup ideas', sub: 'Fast product strategy', prompt: 'Give me 3 creative app ideas I can build and launch this week' }
+  { icon: '✦', title: 'Write a quick script', sub: 'Inline code block', prompt: 'Make a simple Roblox script that boosts walkspeed to 100' }
 ];
 
 const EXT_MAP = { javascript: 'js', js: 'js', jsx: 'jsx', ts: 'ts', python: 'py', py: 'py', lua: 'lua', html: 'html', css: 'css', json: 'json', sql: 'sql', sh: 'sh', md: 'md', txt: 'txt' };
@@ -96,16 +96,15 @@ const cleanLinksAndExtractSources = (rawText, annotations = [], extraSources = [
   (annotations || []).forEach(a => { if (a?.url_citation?.url) addSource(a.url_citation.url, a.url_citation.title); });
 
   const isDomainOrNum = (lbl) => /^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(lbl.trim()) || /^\d+$/.test(lbl.trim());
-  const parts = (rawText || '').split(/(```[\s\S]*?```)/g);
+  const parts = (rawText || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
   const text = parts.map(part => {
-    if (part.startsWith('```')) return part;
+    if (part.startsWith('```') || part.startsWith('[[[FILE:')) return part;
     let p = part.replace(/\(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)\)/g, (_, lbl, url) => { addSource(url, lbl); return ''; });
     p = p.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, lbl, url) => {
       addSource(url, lbl);
       return isDomainOrNum(lbl) ? '' : lbl;
     });
     p = p.replace(/(https?:\/\/[^\s]+)/g, (url) => { addSource(url); return ''; });
-    // Strip standalone orphan domain lines like "wikipedia.org" at the end
     p = p.split('\n').filter(line => !/^([a-z0-9-]+\.)+[a-z]{2,}\.?$/i.test(line.trim())).join('\n');
     return p.replace(/[ \t]{2,}/g, ' ').replace(/\(\s*\)/g, '');
   }).join('').trim();
@@ -196,36 +195,25 @@ const EmptyHero = ({ onSelectPrompt, onOpenSettings, hasKey }) => {
   useEffect(() => {
     Animated.timing(fadeUp, { toValue: 1, duration: 400, useNativeDriver: true }).start();
     Animated.loop(Animated.parallel([
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 1800, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0.65, duration: 1800, useNativeDriver: true })
-      ]),
-      Animated.sequence([
-        Animated.timing(scale, { toValue: 1.07, duration: 1800, useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 1, duration: 1800, useNativeDriver: true })
-      ])
+      Animated.sequence([Animated.timing(pulse, { toValue: 1, duration: 1800, useNativeDriver: true }), Animated.timing(pulse, { toValue: 0.65, duration: 1800, useNativeDriver: true })]),
+      Animated.sequence([Animated.timing(scale, { toValue: 1.07, duration: 1800, useNativeDriver: true }), Animated.timing(scale, { toValue: 1, duration: 1800, useNativeDriver: true })])
     ])).start();
   }, []);
 
   return (
     <Animated.View style={[styles.emptyChat, { opacity: fadeUp }]}>
-      <Animated.View style={[styles.heroOrb, { opacity: pulse, transform: [{ scale }] }]}>
-        <Text style={styles.emptyLogo}>✧</Text>
-      </Animated.View>
+      <Animated.View style={[styles.heroOrb, { opacity: pulse, transform: [{ scale }] }]}><Text style={styles.emptyLogo}>✧</Text></Animated.View>
       <Text style={styles.heroBrand}>Tessarc</Text>
       <Text style={styles.emptyChatText}>One workspace for every frontier AI.</Text>
-
       <View style={styles.trustStrip}>
         <Text style={styles.trustText}>OpenAI • Claude • Gemini • DeepSeek • Llama</Text>
         <Text style={styles.trustSub}>Local-first privacy • Live Web • Direct file export</Text>
       </View>
-
       {!hasKey && (
         <TouchableOpacity style={styles.heroPrimaryCta} onPress={onOpenSettings} activeOpacity={0.85}>
           <Text style={styles.heroPrimaryCtaText}>Connect Free API Key →</Text>
         </TouchableOpacity>
       )}
-
       <View style={styles.starterGrid}>
         {STARTER_PROMPTS.map((item, idx) => (
           <TouchableOpacity key={idx} style={styles.starterCard} onPress={() => onSelectPrompt(item)} activeOpacity={0.75}>
@@ -255,35 +243,57 @@ const ThinkingIndicator = ({ statusText, webActive }) => {
   const fadeAnim = useRef(new Animated.Value(0.35)).current;
   const [stepIdx, setStepIdx] = useState(0);
   const webSteps = ['🌐 Querying web index...', '🌐 Visiting top websites...', '🌐 Reading live pages...', '✧ Synthesizing sources...'];
-
   useEffect(() => {
-    Animated.loop(Animated.sequence([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-      Animated.timing(fadeAnim, { toValue: 0.35, duration: 600, useNativeDriver: true })
-    ])).start();
+    Animated.loop(Animated.sequence([Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }), Animated.timing(fadeAnim, { toValue: 0.35, duration: 600, useNativeDriver: true })])).start();
   }, []);
-
   useEffect(() => {
     if (!webActive) return;
     const interval = setInterval(() => setStepIdx(i => (i + 1) % webSteps.length), 1400);
     return () => clearInterval(interval);
   }, [webActive]);
-
-  const label = statusText || (webActive ? webSteps[stepIdx] : '✧ Synthesizing...');
   return (
     <View style={styles.thinkingCard}>
-      <Animated.Text style={[styles.thinkingText, { opacity: fadeAnim }]}>{label}</Animated.Text>
+      <Animated.Text style={[styles.thinkingText, { opacity: fadeAnim }]}>{statusText || (webActive ? webSteps[stepIdx] : '✧ Synthesizing...')}</Animated.Text>
     </View>
   );
 };
 
+// --- DISTINCTIVE TESSARC FILE ATTACHMENT CARD ---
+const FileCard = ({ filename, content, onPreview }) => {
+  const [saved, setSaved] = useState(false);
+  const ext = (filename.split('.').pop() || 'FILE').toUpperCase().slice(0, 4);
+  const isWeb = ext === 'HTML' || ext === 'HTM' || ext === 'SVG';
+  const lines = content.split('\n').length;
+  const kb = Math.max(0.1, (content.length / 1024)).toFixed(1);
+  const accent = isWeb ? '#4ADE80' : '#4A90E2';
+
+  return (
+    <TouchableOpacity style={[styles.fileCard, { borderLeftColor: accent }]} onPress={onPreview} activeOpacity={0.78}>
+      <View style={[styles.fileExtBadge, { borderColor: accent }]}>
+        <Text style={[styles.fileExtText, { color: accent }]}>{ext}</Text>
+      </View>
+      <View style={{ flex: 1, marginRight: 10 }}>
+        <Text style={styles.fileCardName} numberOfLines={1}>{filename}</Text>
+        <Text style={styles.fileCardMeta}>{lines} lines • {kb} KB • Tap to {isWeb ? 'preview & run' : 'view'}</Text>
+      </View>
+      <TouchableOpacity
+        style={styles.fileDlCircle}
+        onPress={(e) => { e?.stopPropagation?.(); downloadFile(filename, content); setSaved(true); setTimeout(() => setSaved(false), 1800); }}
+      >
+        <Text style={styles.fileDlIcon}>{saved ? '✓' : '↓'}</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+};
+
+// --- INLINE CODE BLOCK (FOR NORMAL SCRIPT REQUESTS) ---
 const CodeBlock = ({ code, filename, language }) => {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   return (
     <View style={styles.codeContainer}>
       <View style={styles.codeHeader}>
-        <Text style={styles.codeLang} numberOfLines={1}>📄 {filename || language}</Text>
+        <Text style={styles.codeLang} numberOfLines={1}>{language || 'code'}</Text>
         <View style={{ flexDirection: 'row', gap: 6 }}>
           <TouchableOpacity onPress={() => { downloadFile(filename, code); setSaved(true); setTimeout(() => setSaved(false), 1800); }} style={styles.copyBtn}>
             <Text style={styles.saveBtnText}>{saved ? 'Saved ✓' : 'Save 💾'}</Text>
@@ -323,6 +333,10 @@ export default function App() {
   const [webSearchOn, setWebSearchOn] = useState(false);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_PROVIDERS[0].models[0]); 
 
+  const [previewFile, setPreviewFile] = useState(null); // { filename, content }
+  const [previewTab, setPreviewTab] = useState('code'); // 'code' or 'run'
+  const [previewCopied, setPreviewCopied] = useState(false);
+
   const [attachments, setAttachments] = useState([]);
   const [mediaNotice, setMediaNotice] = useState('');
   const [showNoticeModal, setShowNoticeModal] = useState(false);
@@ -337,7 +351,6 @@ export default function App() {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       document.title = 'Tessarc — Multi-Model AI Workspace';
     }
-
     (async () => {
       try {
         const storedKey = await AsyncStorage.getItem('@council_api_key_v1');
@@ -366,13 +379,11 @@ export default function App() {
           free: isFree(m)
         }));
         setAllLiveModels(formatted);
-
         const freeModels = [{ id: 'openrouter/free', name: 'Auto-Router (Fast)', isVision: true, free: true }, ...formatted.filter(m => m.free && m.id !== 'openrouter/free').slice(0, 20)];
         const googleModels = [
           ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini') || m.name.toLowerCase().includes('hydrogen')) && m.free),
           ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini')) && !m.free)
         ].slice(0, 15);
-
         const pick = (fn) => formatted.filter(fn).slice(0, 10);
         const liveProviders = [
           { id: 'free_tier', name: 'Free', models: freeModels },
@@ -383,7 +394,6 @@ export default function App() {
           { id: 'meta', name: 'Meta', models: pick(m => m.id.startsWith('meta-llama/')) },
           { id: 'alibaba', name: 'Qwen', models: pick(m => m.id.startsWith('qwen/')) }
         ].filter(p => p.models.length > 0);
-
         if (liveProviders.length > 0) { setProviders(liveProviders); setIsLiveSynced(true); }
       })
       .catch(() => {});
@@ -436,11 +446,7 @@ export default function App() {
   };
 
   const cancelEdit = () => { setEditingIndex(null); setInputText(''); setAttachments([]); };
-
-  const handleSelectStarter = (item) => {
-    setInputText(item.prompt);
-    if (item.web) setWebSearchOn(true);
-  };
+  const handleSelectStarter = (item) => { setInputText(item.prompt); if (item.web) setWebSearchOn(true); };
 
   const handlePickMedia = () => {
     setMediaNotice('');
@@ -482,8 +488,7 @@ export default function App() {
     const chatHistory = [...baseHistory, newUserMsg];
 
     setMessages(chatHistory); setInputText(''); setAttachments([]); setEditingIndex(null);
-    setThinkingStatus('');
-    setIsLoading(true);
+    setThinkingStatus(''); setIsLoading(true);
 
     const isClaudeModel = selectedModel.id.includes('claude');
     if (isClaudeModel && !anthropicKey.trim() && !apiKey.trim()) {
@@ -497,7 +502,7 @@ export default function App() {
 
     const attemptFetch = async (msgsToSend, useWebPlugin) => {
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
-      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. If the user just greets you (like "Hello"), greet them back warmly—do NOT search or bring up unrelated trivia. When creating files/code, put the filename in the code header like \`\`\`lua:speed.lua. NEVER write website domain names (like wikipedia.org) or raw URLs in your reply text—sources are displayed separately by the UI.\nLIVE TOOLS: If asked for current weather/forecast in a city and you don't already have it, reply ONLY with: [[WEATHER:CityName]]. If asked for factual lookups you aren't sure about, reply ONLY with: [[SEARCH:query]].`;
+      let systemPrompt = `You are Tessarc, a witty, charismatic AI powered by ${selectedModel.name}. Current date/time: ${now}. Always reply strictly in the exact language the user used. Use emojis naturally 😂✨. If the user just greets you, greet them back warmly.\nCODE VS FILE RULE:\n1) If the user asks for a script or code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`) in the chat.\n2) ONLY if the user explicitly asks to "put it in a file", "create a file", or "give me a file", wrap the entire file content inside [[[FILE:filename.ext]]] and [[[/FILE]]] tags (e.g. [[[FILE:speed.lua]]]\n...\n[[[/FILE]]]). Never wrap the same code in both!\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: For live weather, reply ONLY with [[WEATHER:CityName]]. For factual lookups, reply ONLY with [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       if (isClaudeModel && anthropicKey.trim()) {
@@ -555,14 +560,14 @@ export default function App() {
         const liveData = await fetchLiveWeather(city);
         extraSources = liveData.sources;
         setThinkingStatus(`✧ Synthesizing forecast...`);
-        result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM LIVE DATA - DO NOT OUTPUT TAGS]\n${liveData.text}\nAnswer the user naturally with this live weather!` }], false);
+        result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM LIVE DATA - DO NOT OUTPUT TAGS]\n${liveData.text}\nAnswer naturally!` }], false);
       } else if (searchMatch) {
         const q = searchMatch[1].trim();
         setThinkingStatus(`🌐 Visiting en.wikipedia.org (${q})...`);
         const wikiData = await fetchWikiSearch(q);
         extraSources = wikiData.sources;
         setThinkingStatus(`✧ Reading Wikipedia pages...`);
-        result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM SEARCH DATA - DO NOT OUTPUT TAGS]\n${wikiData.text}\nAnswer the user naturally with this info!` }], false);
+        result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM SEARCH DATA - DO NOT OUTPUT TAGS]\n${wikiData.text}\nAnswer naturally!` }], false);
       }
 
       const cleaned = cleanLinksAndExtractSources(result.raw, result.annotations, extraSources);
@@ -573,8 +578,7 @@ export default function App() {
       const tip = allFrames.length > 0 ? '\n\n💡 Tip: Ensure your selected model supports Vision (👁).' : '';
       setMessages([...chatHistory, { role: 'assistant', content: `⚠️ Error: ${e.message}${tip}` }]);
     } finally {
-      setIsLoading(false);
-      setThinkingStatus('');
+      setIsLoading(false); setThinkingStatus('');
     }
   };
 
@@ -588,8 +592,15 @@ export default function App() {
     syncChatsWithStorage(list);
   };
 
+  const openFilePreview = (filename, content) => {
+    const isWeb = /\.(html?|svg)$/i.test(filename);
+    setPreviewTab(isWeb && Platform.OS === 'web' ? 'run' : 'code');
+    setPreviewCopied(false);
+    setPreviewFile({ filename, content, isWeb });
+  };
+
   const renderMessageContent = (item) => {
-    const parts = (item.content || '').split(/(```[\s\S]*?```)/g);
+    const parts = (item.content || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
     return (
       <View>
         {item.images?.length > 0 && (
@@ -598,6 +609,18 @@ export default function App() {
           </ScrollView>
         )}
         {parts.map((part, index) => {
+          if (part.startsWith('[[[FILE:')) {
+            const m = part.match(/^\[\[\[FILE:(.*?)\]\]\]([\s\S]*?)\[\[\[\/FILE\]\]\]$/);
+            if (m) {
+              const fname = m[1].trim() || 'file.txt';
+              let fcode = m[2].trim();
+              if (fcode.startsWith('```')) {
+                const nl = fcode.indexOf('\n');
+                fcode = (nl !== -1 ? fcode.slice(nl + 1) : fcode.slice(3)).replace(/```$/, '').trim();
+              }
+              return <FileCard key={index} filename={fname} content={fcode} onPreview={() => openFilePreview(fname, fcode)} />;
+            }
+          }
           if (part.startsWith('```') && part.endsWith('```')) {
             const firstBreak = part.indexOf('\n');
             let lang = 'txt', filename = 'tessarc-file.txt', code = '';
@@ -680,6 +703,59 @@ export default function App() {
           <TouchableOpacity onPress={startNewChat}><Text style={styles.headerIcon}>＋</Text></TouchableOpacity>
         </View>
       </View>
+
+      {/* FULL-SCREEN FILE PREVIEW & LIVE HTML RUNNER MODAL */}
+      <Modal visible={Boolean(previewFile)} animationType="slide" onRequestClose={() => setPreviewFile(null)}>
+        <SafeAreaView style={styles.previewModalRoot}>
+          <View style={styles.previewModalHeader}>
+            <TouchableOpacity onPress={() => setPreviewFile(null)} style={styles.previewCloseBtn}><Text style={styles.previewCloseTxt}>✕</Text></TouchableOpacity>
+            <Text style={styles.previewFileTitle} numberOfLines={1}>📄 {previewFile?.filename}</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity onPress={() => { if (navigator?.clipboard && previewFile) navigator.clipboard.writeText(previewFile.content); setPreviewCopied(true); setTimeout(() => setPreviewCopied(false), 1800); }} style={styles.previewActionBtn}>
+                <Text style={styles.previewActionTxt}>{previewCopied ? 'Copied ✓' : 'Copy'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => previewFile && downloadFile(previewFile.filename, previewFile.content)} style={[styles.previewActionBtn, { backgroundColor: '#FFF' }]}>
+                <Text style={[styles.previewActionTxt, { color: '#000', fontWeight: '800' }]}>Download ↓</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {previewFile?.isWeb && Platform.OS === 'web' && (
+            <View style={styles.previewTabBar}>
+              <TouchableOpacity onPress={() => setPreviewTab('run')} style={[styles.previewTabPill, previewTab === 'run' && styles.previewTabActive]}>
+                <Text style={[styles.previewTabTxt, previewTab === 'run' && { color: '#000' }]}>▶ Live Preview</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setPreviewTab('code')} style={[styles.previewTabPill, previewTab === 'code' && styles.previewTabActive]}>
+                <Text style={[styles.previewTabTxt, previewTab === 'code' && { color: '#000' }]}>{'</>'} Code</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {previewFile && previewTab === 'run' && previewFile.isWeb && Platform.OS === 'web' ? (
+            <View style={{ flex: 1, padding: 12 }}>
+              {React.createElement('iframe', {
+                srcDoc: previewFile.content,
+                sandbox: 'allow-scripts allow-forms',
+                style: { width: '100%', height: '100%', border: 'none', borderRadius: 16, backgroundColor: '#fff' }
+              })}
+            </View>
+          ) : (
+            <ScrollView style={{ flex: 1, padding: 14 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View>
+                  {(previewFile?.content || '').split('\n').map((line, idx) => (
+                    <View key={idx} style={styles.codeLineRow}>
+                      <Text style={styles.lineNum}>{idx + 1}</Text>
+                      <Text style={styles.codeText}>{line || ' '}</Text>
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          )}
+        </SafeAreaView>
+      </Modal>
 
       <Modal visible={showNoticeModal && !hasAnyKey && !dontShowAgain} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
@@ -940,6 +1016,29 @@ const styles = StyleSheet.create({
   sourcesLabel: { color: '#666', fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 8 },
   sourcePill: { backgroundColor: '#16161B', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, borderWidth: 1, borderColor: '#282830', maxWidth: 190 },
   sourcePillText: { color: '#7BB1F5', fontSize: 12, fontWeight: '600' },
+
+  // TESSARC FILE CARD & FULLSCREEN INSPECTOR MODAL
+  fileCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111218', borderRadius: 16, padding: 12, marginVertical: 10, borderWidth: 1, borderColor: '#2A2A35', borderLeftWidth: 4 },
+  fileExtBadge: { width: 42, height: 42, borderRadius: 10, backgroundColor: '#181922', borderWidth: 1, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  fileExtText: { fontSize: 11, fontWeight: '900', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  fileCardName: { color: '#FFF', fontSize: 15, fontWeight: '700', marginBottom: 2 },
+  fileCardMeta: { color: '#7A7A88', fontSize: 11, fontWeight: '500' },
+  fileDlCircle: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#1E1F29', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#333442' },
+  fileDlIcon: { color: '#FFF', fontSize: 15, fontWeight: 'bold' },
+  previewModalRoot: { flex: 1, backgroundColor: '#050507', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
+  previewModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, borderBottomWidth: 1, borderBottomColor: '#1C1C22', backgroundColor: '#0B0B0E' },
+  previewCloseBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#1A1A20', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+  previewCloseTxt: { color: '#FFF', fontSize: 14, fontWeight: 'bold' },
+  previewFileTitle: { flex: 1, color: '#FFF', fontSize: 14, fontWeight: '700', marginRight: 10 },
+  previewActionBtn: { backgroundColor: '#1C1C24', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: '#2E2E38' },
+  previewActionTxt: { color: '#DDD', fontSize: 12, fontWeight: '700' },
+  previewTabBar: { flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#0B0B0E', borderBottomWidth: 1, borderBottomColor: '#18181E' },
+  previewTabPill: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 16, backgroundColor: '#181820' },
+  previewTabActive: { backgroundColor: '#4ADE80' },
+  previewTabTxt: { color: '#AAA', fontSize: 12, fontWeight: '700' },
+  codeLineRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  lineNum: { width: 34, color: '#4A4A55', fontSize: 12, lineHeight: 22, textAlign: 'right', paddingRight: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+
   codeContainer: { backgroundColor: '#0D0D10', borderRadius: 14, borderWidth: 1, borderColor: '#222', marginVertical: 10, overflow: 'hidden' },
   codeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#151518', borderBottomWidth: 1, borderBottomColor: '#202025' },
   codeLang: { color: '#888', fontSize: 12, fontWeight: '700', flex: 1, marginRight: 8 },
