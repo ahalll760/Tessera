@@ -9,11 +9,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const DEFAULT_PROVIDERS = [
   {
     id: 'google',
-    name: 'Google & Gemini (1,500 Free/Day)',
+    name: 'Google & Gemini (Free)',
     models: [
-      { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Fast & Free)', isVision: true, free: true },
-      { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash (Free)', isVision: true, free: true },
-      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', isVision: true }
+      { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Smartest Free)', isVision: true, free: true },
+      { id: 'google/gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite (500/Day Free)', isVision: true, free: true },
+      { id: 'google/gemini-3.6-flash', name: 'Gemini 3.6 Flash (Free)', isVision: true, free: true },
+      { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite (Free)', isVision: true, free: true }
     ]
   },
   {
@@ -37,7 +38,7 @@ const DEFAULT_PROVIDERS = [
   },
   {
     id: 'anthropic',
-    name: 'Anthropic (Claude - Paid)',
+    name: 'Claude (Paid)',
     models: [
       { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet', isVision: true },
       { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', isVision: true }
@@ -207,7 +208,7 @@ const EmptyHero = ({ onSelectPrompt, onOpenSettings, hasKey }) => {
       <Text style={styles.heroBrand}>Tessarc</Text>
       <Text style={styles.emptyChatText}>One workspace for every frontier AI.</Text>
       <View style={styles.trustStrip}>
-        <Text style={styles.trustText}>Gemini (1,500/day Free) • Claude • GPT-4o • DeepSeek</Text>
+        <Text style={styles.trustText}>Gemini (Free Tier) • Claude • GPT-4o • DeepSeek</Text>
         <Text style={styles.trustSub}>Local-first privacy • Live Web • Direct file export</Text>
       </View>
       {!hasKey && (
@@ -385,14 +386,14 @@ export default function App() {
         setAllLiveModels(formatted);
         const freeModels = [{ id: 'openrouter/free', name: 'Auto-Router (Fast)', isVision: true, free: true }, ...formatted.filter(m => m.free && m.id !== 'openrouter/free').slice(0, 20)];
         const googleModels = [
-          { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Fast & Free)', isVision: true, free: true },
-          { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash (Free)', isVision: true, free: true },
-          ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini') || m.name.toLowerCase().includes('hydrogen')) && m.free),
-          ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini')) && !m.free)
-        ].slice(0, 16);
+          { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Smartest Free)', isVision: true, free: true },
+          { id: 'google/gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite (500/Day Free)', isVision: true, free: true },
+          { id: 'google/gemini-3.6-flash', name: 'Gemini 3.6 Flash (Free)', isVision: true, free: true },
+          ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini') || m.name.toLowerCase().includes('hydrogen')) && !m.id.includes('2.0') && !m.id.includes('1.5')).slice(0, 12)
+        ];
         const pick = (fn) => formatted.filter(fn).slice(0, 10);
         const liveProviders = [
-          { id: 'google', name: 'Google & Gemini (1,500 Free/Day)', models: googleModels },
+          { id: 'google', name: 'Google & Gemini (Free)', models: googleModels },
           { id: 'free_tier', name: '🌟 OpenRouter Free', models: freeModels },
           { id: 'openai', name: 'OpenAI', models: pick(m => m.id.startsWith('openai/')) },
           { id: 'anthropic', name: 'Claude (Paid)', models: pick(m => m.id.startsWith('anthropic/')) },
@@ -514,7 +515,7 @@ export default function App() {
     const isClaudeModel = selectedModel.id.includes('claude');
 
     if (isGeminiModel && !geminiKey.trim() && !apiKey.trim()) {
-      setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Add your free Google Gemini key in Settings (☰ > ⚙ Settings) for 1,500 free requests/day!' }]);
+      setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Add your free Google Gemini key (starts with AQ.) in Settings!' }]);
       return setIsLoading(false);
     }
     if (isClaudeModel && !anthropicKey.trim() && !apiKey.trim()) {
@@ -535,10 +536,9 @@ export default function App() {
       let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally. Use emojis naturally 😂✨. If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
-      // ROUTE 1: NATIVE GOOGLE AI STUDIO (1,500 FREE/DAY DIRECT TO GEMINI 3.8 FLASH!)
+      // ROUTE 1: NATIVE GOOGLE AI STUDIO (SUPPORTS AQ. & AIza KEYS VIA x-goog-api-key)
       if (isGeminiModel && geminiKey.trim()) {
         let gModel = selectedModel.id.replace('google/', '').trim();
-        // Map any legacy or 2.0 version straight to the active 3.8-flash model
         if (!gModel.startsWith('gemini') || gModel.includes('2.0') || gModel.includes('1.5')) {
           gModel = 'gemini-3.8-flash';
         }
@@ -555,10 +555,13 @@ export default function App() {
           return { role: m.role === 'assistant' ? 'model' : 'user', parts };
         });
 
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent?key=${geminiKey.trim()}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent`, {
           method: 'POST',
           signal: controller.signal,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': geminiKey.trim()
+          },
           body: JSON.stringify({
             contents,
             systemInstruction: { parts: [{ text: systemPrompt }] }
@@ -762,20 +765,18 @@ export default function App() {
         </View>
         <ScrollView style={styles.settingsContent} contentContainerStyle={styles.desktopCenter}>
           
-          {/* KEY 1: GOOGLE GEMINI (1,500 FREE/DAY) */}
           <View style={styles.badgeRow}>
             <Text style={styles.sectionLabel}>GOOGLE GEMINI API KEY</Text>
-            <View style={styles.freeDayBadge}><Text style={styles.freeDayBadgeText}>FREE (1,500/DAY)</Text></View>
+            <View style={styles.freeDayBadge}><Text style={styles.freeDayBadgeText}>FREE (UP TO 500/DAY)</Text></View>
           </View>
-          <Text style={styles.helperText}>Get 1,500 free requests every day direct from Google. No credit card required.</Text>
-          <TextInput style={styles.keyInput} value={geminiKey} onChangeText={handleGeminiKeyChange} placeholder="AIzaSy..." placeholderTextColor="#666" autoCapitalize="none" autoCorrect={false} />
+          <Text style={styles.helperText}>Paste your Google AI Studio key (starts with AQ. or AIza). Flash-Lite gives up to 500 free messages/day!</Text>
+          <TextInput style={styles.keyInput} value={geminiKey} onChangeText={handleGeminiKeyChange} placeholder="AQ... or AIza..." placeholderTextColor="#666" autoCapitalize="none" autoCorrect={false} />
           <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://aistudio.google.com/apikey')}>
             <Text style={[styles.linkButtonText, { color: '#4ADE80' }]}>Get Free Google Gemini Key ↗</Text>
           </TouchableOpacity>
 
           <View style={{height: 14}} />
 
-          {/* KEY 2: ANTHROPIC (CLAUDE) - PAID */}
           <View style={styles.badgeRow}>
             <Text style={styles.sectionLabel}>ANTHROPIC (CLAUDE) KEY</Text>
             <View style={styles.paidBadge}><Text style={styles.paidBadgeText}>PAID</Text></View>
@@ -788,7 +789,6 @@ export default function App() {
 
           <View style={{height: 14}} />
 
-          {/* KEY 3: OPENROUTER (UNIVERSAL) */}
           <View style={styles.badgeRow}>
             <Text style={styles.sectionLabel}>OPENROUTER API KEY</Text>
             <View style={styles.universalBadge}><Text style={styles.universalBadgeText}>UNIVERSAL</Text></View>
@@ -888,7 +888,7 @@ export default function App() {
             <Text style={styles.noticeHeader}>🔑 Setup Required</Text>
             <Text style={styles.noticeBody}>To chat with models, please add a free Google Gemini key or an OpenRouter key in Settings.</Text>
             <TouchableOpacity style={styles.noticeBtnPrimary} onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}><Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL('https://aistudio.google.com/apikey')}><Text style={styles.noticeBtnSecondaryText}>Get Free Google Gemini Key (1,500/day) ↗</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL('https://aistudio.google.com/apikey')}><Text style={styles.noticeBtnSecondaryText}>Get Free Google Gemini Key ↗</Text></TouchableOpacity>
             <TouchableOpacity style={styles.checkboxContainer} onPress={toggleDontShowAgain}>
               <View style={[styles.checkboxBox, dontShowAgain && styles.checkboxChecked]}>{dontShowAgain && <Text style={styles.checkboxCheck}>✓</Text>}</View>
               <Text style={styles.checkboxLabel}>Don't show this again</Text>
@@ -1101,8 +1101,6 @@ const styles = StyleSheet.create({
   deleteBtnText: { color: '#555', fontSize: 12 },
   menuFooter: { borderTopWidth: 1, borderTopColor: '#222', paddingTop: 15 },
   settingsRowText: { color: '#FFF', fontSize: 16 },
-
-  // SETTINGS BADGES
   settingsContent: { padding: 20 },
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   sectionLabel: { color: '#888', fontSize: 12, fontWeight: '800', letterSpacing: 1.5 },
@@ -1112,7 +1110,6 @@ const styles = StyleSheet.create({
   paidBadgeText: { color: '#F87171', fontSize: 10, fontWeight: '900' },
   universalBadge: { backgroundColor: '#142033', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#23395C' },
   universalBadgeText: { color: '#60A5FA', fontSize: 10, fontWeight: '900' },
-
   helperText: { color: '#777', fontSize: 13, marginBottom: 12, lineHeight: 18 },
   keyInput: { backgroundColor: '#111', color: '#FFF', fontSize: 14, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#2C2C34', marginBottom: 12 },
   linkButton: { backgroundColor: '#1C1C1E', paddingVertical: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
