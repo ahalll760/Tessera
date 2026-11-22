@@ -11,10 +11,9 @@ const DEFAULT_PROVIDERS = [
     id: 'google',
     name: 'Google & Gemini (1,500 Free/Day)',
     models: [
-      { id: 'google/gemini-2.0-flash', name: 'Gemini 2.0 Flash (Fast & Free)', isVision: true, free: true },
-      { id: 'google/gemini-1.5-flash', name: 'Gemini 1.5 Flash (Free)', isVision: true, free: true },
-      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', isVision: true },
-      { id: 'google/gemini-1.5-pro', name: 'Gemini 1.5 Pro', isVision: true }
+      { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Fast & Free)', isVision: true, free: true },
+      { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash (Free)', isVision: true, free: true },
+      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', isVision: true }
     ]
   },
   {
@@ -320,10 +319,9 @@ export default function App() {
   const [isLiveSynced, setIsLiveSynced] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false); 
   
-  // Storage & State
-  const [apiKey, setApiKey] = useState(''); // OpenRouter
-  const [geminiKey, setGeminiKey] = useState(''); // Direct Google AI Studio (1,500/day free!)
-  const [anthropicKey, setAnthropicKey] = useState(''); // Direct Claude (Paid)
+  const [apiKey, setApiKey] = useState('');
+  const [geminiKey, setGeminiKey] = useState(''); 
+  const [anthropicKey, setAnthropicKey] = useState(''); 
   const [userContext, setUserContext] = useState('');
   const [savedChats, setSavedChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
@@ -387,8 +385,8 @@ export default function App() {
         setAllLiveModels(formatted);
         const freeModels = [{ id: 'openrouter/free', name: 'Auto-Router (Fast)', isVision: true, free: true }, ...formatted.filter(m => m.free && m.id !== 'openrouter/free').slice(0, 20)];
         const googleModels = [
-          { id: 'google/gemini-2.0-flash', name: 'Gemini 2.0 Flash (Fast & Free)', isVision: true, free: true },
-          { id: 'google/gemini-1.5-flash', name: 'Gemini 1.5 Flash (Free)', isVision: true, free: true },
+          { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Fast & Free)', isVision: true, free: true },
+          { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash (Free)', isVision: true, free: true },
           ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini') || m.name.toLowerCase().includes('hydrogen')) && m.free),
           ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini')) && !m.free)
         ].slice(0, 16);
@@ -515,7 +513,6 @@ export default function App() {
     const isGeminiModel = selectedModel.id.includes('gemini');
     const isClaudeModel = selectedModel.id.includes('claude');
 
-    // Validation guard
     if (isGeminiModel && !geminiKey.trim() && !apiKey.trim()) {
       setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Add your free Google Gemini key in Settings (☰ > ⚙ Settings) for 1,500 free requests/day!' }]);
       return setIsLoading(false);
@@ -538,11 +535,13 @@ export default function App() {
       let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally. Use emojis naturally 😂✨. If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
-      // ROUTE 1: NATIVE GOOGLE AI STUDIO (1,500 FREE REQUESTS/DAY DIRECT FROM GOOGLE!)
+      // ROUTE 1: NATIVE GOOGLE AI STUDIO (1,500 FREE/DAY DIRECT TO GEMINI 3.8 FLASH!)
       if (isGeminiModel && geminiKey.trim()) {
         let gModel = selectedModel.id.replace('google/', '').trim();
-        if (!gModel.startsWith('gemini')) gModel = 'gemini-1.5-flash';
-        if (gModel === 'gemini-2.0-flash') gModel = 'gemini-2.0-flash';
+        // Map any legacy or 2.0 version straight to the active 3.8-flash model
+        if (!gModel.startsWith('gemini') || gModel.includes('2.0') || gModel.includes('1.5')) {
+          gModel = 'gemini-3.8-flash';
+        }
 
         const contents = msgsToSend.map(m => {
           const parts = [];
@@ -1162,7 +1161,7 @@ const styles = StyleSheet.create({
   editingBannerText: { color: '#7BB1F5', fontSize: 12, fontWeight: '600' },
   editingCancelText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
   aiMsg: { alignSelf: 'flex-start', paddingVertical: 12, paddingHorizontal: 4, marginVertical: 6, width: '100%' },
-  msgText: { color: '#EAEAEA', fontSize: 16, lineHeight: 26, flexShrink: 1, ...(Platform.OS === 'web' ? { overflowWrap: 'anywhere' } : {}) },
+  msgText: { color: '#EAEAEA', fontSize: 16, lineHeight: 26 },
   mdHeading: { color: '#FFF', fontSize: 18, fontWeight: '800', marginTop: 8, marginBottom: 4, letterSpacing: -0.2 },
   mdDivider: { height: 1, backgroundColor: '#24242A', marginVertical: 12 },
   msgImageThumb: { width: 90, height: 90, borderRadius: 12, marginRight: 8, backgroundColor: '#111' },
