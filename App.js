@@ -189,18 +189,12 @@ const processVideo = (file) => new Promise((resolve, reject) => {
   video.src = url; video.load();
 });
 
-// --- SSE STREAM READER WITH ACTIVITY WATCHDOG ---
+// FIXED: Flushes remaining buffer & decoder bytes on stream end so final words are never dropped!
 const readSSE = async (res, onEvent, onPulse) => {
   const reader = res.body.getReader();
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    onPulse();
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+  const processLines = (lines) => {
     for (const line of lines) {
       const t = line.trim();
       if (!t.startsWith('data:')) continue;
@@ -208,7 +202,18 @@ const readSSE = async (res, onEvent, onPulse) => {
       if (!payload || payload === '[DONE]') continue;
       try { onEvent(JSON.parse(payload)); } catch {}
     }
+  };
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    onPulse();
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || '';
+    processLines(lines);
   }
+  buffer += decoder.decode();
+  if (buffer.trim()) processLines(buffer.split(/\r?\n/));
 };
 
 const EmptyHero = ({ onSelectPrompt, onOpenSettings, hasKey }) => {
@@ -554,7 +559,6 @@ export default function App() {
 
     const controller = new AbortController();
     abortRef.current = controller;
-    // Smart Activity Watchdog: 90s idle limit that resets on every incoming streaming chunk!
     let timeoutId = setTimeout(() => controller.abort(), 90000);
     const resetWatchdog = () => {
       clearTimeout(timeoutId);
@@ -565,7 +569,6 @@ export default function App() {
       if (!chunk) return;
       streamAccumRef.current += chunk;
       const cur = streamAccumRef.current;
-      // Hold display briefly only if AI starts with [[WEATHER: / [[SEARCH: tool tag
       if (cur.startsWith('[[') && cur.length < 60 && !cur.includes('\n')) return;
       setStreamingText(cur);
     };
@@ -581,7 +584,7 @@ export default function App() {
 
       const canStream = Platform.OS === 'web' && typeof ReadableStream !== 'undefined';
 
-      // ROUTE 1: NATIVE GOOGLE AI STUDIO (STREAMING + AQ. KEY)
+      // ROUTE 1: NATIVE GOOGLE AI STUDIO (WITH SAFETY/MAX_TOKENS CHECK + FULL BUFFER FLUSH)
       if (isGeminiModel && geminiKey.trim()) {
         let gModel = selectedModel.id.replace('google/', '').trim();
         if (!gModel.startsWith('gemini') || gModel.includes('2.0') || gModel.includes('1.5')) {
@@ -605,7 +608,11 @@ export default function App() {
           method: 'POST',
           signal: controller.signal,
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey.trim() },
-          body: JSON.stringify({ contents, systemInstruction: { parts: [{ text: systemPrompt }] } })
+          body: JSON.stringify({
+            contents,
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            generationConfig: { maxOutputTokens: 4096 }
+          })
         });
 
         if (!res.ok) {
@@ -614,20 +621,23 @@ export default function App() {
         }
 
         if (canStream && res.body?.getReader) {
+          let finishNote = '';
           await readSSE(res, (json) => {
-            const parts = json.candidates?.[0]?.content?.parts || [];
-            // Skip internal thinking tokens (thought: true) so only visible answer streams
+            const cand = json.candidates?.[0];
+            const parts = cand?.content?.parts || [];
             const txt = parts.filter(p => !p.thought).map(p => p.text || '').join('');
             pushChunk(txt);
+            if (cand?.finishReason === 'SAFETY') finishNote = '\n\n[⚠️ Cut short by model safety filter]';
+            else if (cand?.finishReason === 'MAX_TOKENS') finishNote = '\n\n[⚠️ Reached max output length]';
           }, resetWatchdog);
-          return { raw: streamAccumRef.current, annotations: [] };
+          return { raw: streamAccumRef.current + finishNote, annotations: [] };
         }
 
         const data = await res.json();
         return { raw: data.candidates?.[0]?.content?.parts?.filter(p => !p.thought).map(p => p.text || '').join('') || '', annotations: [] };
       }
 
-      // ROUTE 2: DIRECT ANTHROPIC (CLAUDE - PAID, STREAMING)
+      // ROUTE 2: DIRECT ANTHROPIC (CLAUDE - PAID)
       if (isClaudeModel && anthropicKey.trim()) {
         const formattedMsgs = msgsToSend.map(m => m.images?.length ? ({
           role: m.role,
