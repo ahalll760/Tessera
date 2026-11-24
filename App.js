@@ -189,6 +189,28 @@ const processVideo = (file) => new Promise((resolve, reject) => {
   video.src = url; video.load();
 });
 
+// --- SSE STREAM READER WITH ACTIVITY WATCHDOG ---
+const readSSE = async (res, onEvent, onPulse) => {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    onPulse();
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t.startsWith('data:')) continue;
+      const payload = t.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      try { onEvent(JSON.parse(payload)); } catch {}
+    }
+  }
+};
+
 const EmptyHero = ({ onSelectPrompt, onOpenSettings, hasKey }) => {
   const pulse = useRef(new Animated.Value(0.65)).current;
   const scale = useRef(new Animated.Value(1)).current;
@@ -330,6 +352,7 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [editingIndex, setEditingIndex] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [streamingText, setStreamingText] = useState('');
   const [thinkingStatus, setThinkingStatus] = useState('');
   const [webSearchOn, setWebSearchOn] = useState(false);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_PROVIDERS[0].models[0]); 
@@ -345,6 +368,7 @@ export default function App() {
 
   const scrollRef = useRef(null);
   const abortRef = useRef(null);
+  const streamAccumRef = useRef('');
   const slideAnim = useRef(new Animated.Value(-350)).current;
   const sheetY = useRef(new Animated.Value(500)).current;
   const sheetFade = useRef(new Animated.Value(0)).current;
@@ -441,8 +465,8 @@ export default function App() {
     Animated.timing(listFade, { toValue: 1, duration: 200, useNativeDriver: true }).start();
   };
 
-  const startNewChat = () => { if (abortRef.current) abortRef.current.abort(); setActiveChatId(null); setMessages([]); setInputText(''); setAttachments([]); setEditingIndex(null); setIsLoading(false); closeMenu(); };
-  const selectChat = (chat) => { if (abortRef.current) abortRef.current.abort(); setActiveChatId(chat.id); setMessages(chat.messages); setAttachments([]); setEditingIndex(null); setIsLoading(false); closeMenu(); };
+  const startNewChat = () => { if (abortRef.current) abortRef.current.abort(); setActiveChatId(null); setMessages([]); setInputText(''); setAttachments([]); setEditingIndex(null); setIsLoading(false); setStreamingText(''); closeMenu(); };
+  const selectChat = (chat) => { if (abortRef.current) abortRef.current.abort(); setActiveChatId(chat.id); setMessages(chat.messages); setAttachments([]); setEditingIndex(null); setIsLoading(false); setStreamingText(''); closeMenu(); };
 
   const deleteChat = async (id, e) => {
     e.stopPropagation();
@@ -508,6 +532,7 @@ export default function App() {
     const chatHistory = [...baseHistory, newUserMsg];
 
     setMessages(chatHistory); setInputText(''); setAttachments([]); setEditingIndex(null);
+    setStreamingText(''); streamAccumRef.current = '';
     setThinkingStatus(''); setIsLoading(true);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
 
@@ -529,14 +554,34 @@ export default function App() {
 
     const controller = new AbortController();
     abortRef.current = controller;
-    const timeoutId = setTimeout(() => controller.abort(), 40000);
+    // Smart Activity Watchdog: 90s idle limit that resets on every incoming streaming chunk!
+    let timeoutId = setTimeout(() => controller.abort(), 90000);
+    const resetWatchdog = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => controller.abort(), 90000);
+    };
+
+    const pushChunk = (chunk) => {
+      if (!chunk) return;
+      streamAccumRef.current += chunk;
+      const cur = streamAccumRef.current;
+      // Hold display briefly only if AI starts with [[WEATHER: / [[SEARCH: tool tag
+      if (cur.startsWith('[[') && cur.length < 60 && !cur.includes('\n')) return;
+      setStreamingText(cur);
+    };
 
     const attemptFetch = async (msgsToSend, useWebPlugin) => {
+      streamAccumRef.current = '';
+      setStreamingText('');
+      resetWatchdog();
+
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
       let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally. Use emojis naturally 😂✨. If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
-      // ROUTE 1: NATIVE GOOGLE AI STUDIO (SUPPORTS AQ. & AIza KEYS VIA x-goog-api-key)
+      const canStream = Platform.OS === 'web' && typeof ReadableStream !== 'undefined';
+
+      // ROUTE 1: NATIVE GOOGLE AI STUDIO (STREAMING + AQ. KEY)
       if (isGeminiModel && geminiKey.trim()) {
         let gModel = selectedModel.id.replace('google/', '').trim();
         if (!gModel.startsWith('gemini') || gModel.includes('2.0') || gModel.includes('1.5')) {
@@ -555,25 +600,34 @@ export default function App() {
           return { role: m.role === 'assistant' ? 'model' : 'user', parts };
         });
 
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent`, {
+        const endpoint = canStream ? `${gModel}:streamGenerateContent?alt=sse` : `${gModel}:generateContent`;
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${endpoint}`, {
           method: 'POST',
           signal: controller.signal,
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': geminiKey.trim()
-          },
-          body: JSON.stringify({
-            contents,
-            systemInstruction: { parts: [{ text: systemPrompt }] }
-          })
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey.trim() },
+          body: JSON.stringify({ contents, systemInstruction: { parts: [{ text: systemPrompt }] } })
         });
 
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err?.error?.message || `Google Gemini API Error: ${res.status}`);
+        }
+
+        if (canStream && res.body?.getReader) {
+          await readSSE(res, (json) => {
+            const parts = json.candidates?.[0]?.content?.parts || [];
+            // Skip internal thinking tokens (thought: true) so only visible answer streams
+            const txt = parts.filter(p => !p.thought).map(p => p.text || '').join('');
+            pushChunk(txt);
+          }, resetWatchdog);
+          return { raw: streamAccumRef.current, annotations: [] };
+        }
+
         const data = await res.json();
-        if (!res.ok || data.error) throw new Error(data?.error?.message || `Google Gemini API Error: ${res.status}`);
-        return { raw: data.candidates?.[0]?.content?.parts?.[0]?.text || '', annotations: [] };
+        return { raw: data.candidates?.[0]?.content?.parts?.filter(p => !p.thought).map(p => p.text || '').join('') || '', annotations: [] };
       }
 
-      // ROUTE 2: DIRECT ANTHROPIC (CLAUDE - PAID)
+      // ROUTE 2: DIRECT ANTHROPIC (CLAUDE - PAID, STREAMING)
       if (isClaudeModel && anthropicKey.trim()) {
         const formattedMsgs = msgsToSend.map(m => m.images?.length ? ({
           role: m.role,
@@ -584,20 +638,29 @@ export default function App() {
           method: "POST",
           signal: controller.signal,
           headers: { "x-api-key": anthropicKey.trim(), "anthropic-version": "2023-06-05", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
-          body: JSON.stringify({ model: selectedModel.id.includes('3.7') ? 'claude-3-7-sonnet-20250219' : 'claude-3-5-sonnet-20241022', max_tokens: 4000, system: systemPrompt, messages: formattedMsgs })
+          body: JSON.stringify({ model: selectedModel.id.includes('3.7') ? 'claude-3-7-sonnet-20250219' : 'claude-3-5-sonnet-20241022', max_tokens: 4000, stream: canStream, system: systemPrompt, messages: formattedMsgs })
         });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err?.error?.message || `Anthropic Error: ${res.status}`);
+        }
+        if (canStream && res.body?.getReader) {
+          await readSSE(res, (json) => {
+            if (json.type === 'content_block_delta' && json.delta?.text) pushChunk(json.delta.text);
+          }, resetWatchdog);
+          return { raw: streamAccumRef.current, annotations: [] };
+        }
         const data = await res.json();
-        if (!res.ok || data.error) throw new Error(data?.error?.message || 'Anthropic API Error');
         return { raw: data.content?.[0]?.text || '', annotations: [] };
       }
 
-      // ROUTE 3: OPENROUTER (UNIVERSAL)
+      // ROUTE 3: OPENROUTER (STREAMING)
       const openRouterMsgs = msgsToSend.map(m => m.images?.length ? ({
         role: m.role,
         content: [{ type: 'text', text: m.content }, ...m.images.map(url => ({ type: 'image_url', image_url: { url } }))]
       }) : ({ role: m.role, content: m.content }));
 
-      const body = { model: selectedModel.id, messages: [{ role: "system", content: systemPrompt }, ...openRouterMsgs] };
+      const body = { model: selectedModel.id, stream: canStream, messages: [{ role: "system", content: systemPrompt }, ...openRouterMsgs] };
       if (useWebPlugin && allFrames.length === 0) body.plugins = [{ id: 'web', max_results: 3 }];
 
       const targetKey = apiKey.trim() || geminiKey.trim() || anthropicKey.trim();
@@ -607,8 +670,21 @@ export default function App() {
         headers: { "Authorization": `Bearer ${targetKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://tessarc.vercel.app", "X-Title": "Tessarc" },
         body: JSON.stringify(body)
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message || `API Error: ${res.status}`);
+      }
+      if (canStream && res.body?.getReader) {
+        const collectedAnn = [];
+        await readSSE(res, (json) => {
+          const delta = json.choices?.[0]?.delta;
+          if (delta?.content) pushChunk(delta.content);
+          const ann = delta?.annotations || json.choices?.[0]?.message?.annotations;
+          if (Array.isArray(ann)) collectedAnn.push(...ann);
+        }, resetWatchdog);
+        return { raw: streamAccumRef.current, annotations: collectedAnn };
+      }
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.error) throw new Error(data?.error?.message || 'API Error');
       return { raw: data.choices?.[0]?.message?.content || '', annotations: data.choices?.[0]?.message?.annotations || [] };
     };
 
@@ -631,6 +707,7 @@ export default function App() {
 
       if (weatherMatch && isValidArg(weatherMatch[1])) {
         const city = weatherMatch[1].trim();
+        setStreamingText('');
         setThinkingStatus(`🌐 Visiting open-meteo.com (${city})...`);
         const liveData = await fetchLiveWeather(city);
         extraSources = liveData.sources;
@@ -638,6 +715,7 @@ export default function App() {
         result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM LIVE DATA - DO NOT OUTPUT TAGS]\n${liveData.text}\nAnswer naturally!` }], false);
       } else if (searchMatch && isValidArg(searchMatch[1])) {
         const q = searchMatch[1].trim();
+        setStreamingText('');
         setThinkingStatus(`🌐 Visiting en.wikipedia.org (${q})...`);
         const wikiData = await fetchWikiSearch(q);
         extraSources = wikiData.sources;
@@ -648,20 +726,26 @@ export default function App() {
       const cleaned = cleanLinksAndExtractSources(result.raw, result.annotations, extraSources);
       const replyContent = cleaned.text || (cleaned.sources.length > 0 ? 'Here are the sources I found:' : '⚠️ Model returned an empty response. Try tapping ✎ Edit or switch models.');
       const finalHistory = [...chatHistory, { role: 'assistant', content: replyContent, sources: cleaned.sources, asFile: userAskedForFile }];
+      setStreamingText('');
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
     } catch (e) {
       if (e.name === 'AbortError') {
-        const stoppedHistory = [...chatHistory, { role: 'assistant', content: '⏹ Stopped or timed out. Tap ✎ Edit on your message to retry!' }];
+        const partial = streamAccumRef.current.trim();
+        const stoppedMsg = partial ? `${partial}\n\n[⏹ Stopped]` : '⏹ Stopped or timed out. Tap ✎ Edit on your message to retry!';
+        const stoppedHistory = [...chatHistory, { role: 'assistant', content: stoppedMsg }];
+        setStreamingText('');
         setMessages(stoppedHistory);
+        if (partial) saveSessionToHistory(currentId, stoppedHistory);
       } else {
+        setStreamingText('');
         const tip = allFrames.length > 0 ? '\n\n💡 Tip: Ensure your selected model supports Vision (👁).' : '';
         setMessages([...chatHistory, { role: 'assistant', content: `⚠️ Error: ${e.message}${tip}` }]);
       }
     } finally {
       clearTimeout(timeoutId);
       abortRef.current = null;
-      setIsLoading(false); setThinkingStatus('');
+      setIsLoading(false); setThinkingStatus(''); setStreamingText('');
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     }
   };
@@ -981,7 +1065,7 @@ export default function App() {
             messages.length === 0 && !isLoading && { flexGrow: 1, justifyContent: 'center' }
           ]}
           onContentSizeChange={() => {
-            if (messages.length > 0 || isLoading) scrollRef.current?.scrollToEnd({ animated: true });
+            if (messages.length > 0 || isLoading || streamingText) scrollRef.current?.scrollToEnd({ animated: true });
           }}
           keyboardShouldPersistTaps="handled"
         >
@@ -1000,7 +1084,13 @@ export default function App() {
               );
             })
           )}
-          {isLoading && <ThinkingIndicator statusText={thinkingStatus} webActive={webSearchOn} />}
+          {isLoading && (streamingText ? (
+            <View style={styles.aiMsg}>
+              <Text style={styles.msgText}>{streamingText.replace(/\*\*/g, '')}</Text>
+            </View>
+          ) : (
+            <ThinkingIndicator statusText={thinkingStatus} webActive={webSearchOn} />
+          ))}
         </ScrollView>
 
         {mediaNotice ? <Text style={[styles.mediaNoticeText, styles.desktopCenter]}>{mediaNotice}</Text> : null}
