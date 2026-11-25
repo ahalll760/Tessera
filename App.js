@@ -6,6 +6,8 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const GITHUB_URL = 'https://github.com/ahalll760/Tessera';
+
 const DEFAULT_PROVIDERS = [
   {
     id: 'google',
@@ -47,13 +49,13 @@ const DEFAULT_PROVIDERS = [
 ];
 
 const STARTER_PROMPTS = [
-  { icon: '</>', title: 'Create a downloadable file', sub: 'Builds a sleek previewable file', prompt: 'Put a fun retro snake game into a file called snake.html' },
-  { icon: '◎', title: 'Check live weather', sub: 'Real-time global forecast', prompt: "What's the weather looking like today in Paris?" },
-  { icon: '⊕', title: 'Search the live web', sub: 'Verified source links', prompt: 'What are the biggest AI & tech news stories right now?', web: true },
-  { icon: '✦', title: 'Write a quick script', sub: 'Inline code block', prompt: 'Make a simple Roblox script that boosts walkspeed to 100' }
+  { icon: '</>', title: 'Build & run a live file', sub: 'Interactive HTML preview', prompt: 'Put a fun retro snake game into a file called snake.html' },
+  { icon: '⇄', title: 'Compare AI strengths', sub: 'Gemini vs Claude vs DeepSeek', prompt: 'Compare Gemini, Claude, and DeepSeek—which one should I pick for coding vs writing?' },
+  { icon: '⊞', title: 'Export structured file', sub: 'Download CSV, Python, Lua, MD', prompt: 'Put a 7-day beginner workout and meal schedule into a file called plan.csv' },
+  { icon: '⊕', title: 'Search the live web', sub: 'Real-time + clickable sources', prompt: 'What are the biggest AI & tech news stories right now?', web: true }
 ];
 
-const EXT_MAP = { javascript: 'js', js: 'js', jsx: 'jsx', ts: 'ts', python: 'py', py: 'py', lua: 'lua', html: 'html', css: 'css', json: 'json', sql: 'sql', sh: 'sh', md: 'md', txt: 'txt' };
+const EXT_MAP = { javascript: 'js', js: 'js', jsx: 'jsx', ts: 'ts', python: 'py', py: 'py', lua: 'lua', html: 'html', css: 'css', json: 'json', csv: 'csv', sql: 'sql', sh: 'sh', md: 'md', txt: 'txt' };
 const WMO = { 0:'Clear sky', 1:'Mainly clear', 2:'Partly cloudy', 3:'Overcast', 45:'Foggy', 48:'Foggy', 51:'Light drizzle', 53:'Drizzle', 61:'Light rain', 63:'Rain', 65:'Heavy rain', 71:'Light snow', 73:'Snow', 80:'Rain showers', 95:'Thunderstorm' };
 
 const fetchLiveWeather = async (rawCity) => {
@@ -189,7 +191,6 @@ const processVideo = (file) => new Promise((resolve, reject) => {
   video.src = url; video.load();
 });
 
-// FIXED: Flushes remaining buffer & decoder bytes on stream end so final words are never dropped!
 const readSSE = async (res, onEvent, onPulse) => {
   const reader = res.body.getReader();
   const decoder = new TextDecoder('utf-8');
@@ -216,7 +217,7 @@ const readSSE = async (res, onEvent, onPulse) => {
   if (buffer.trim()) processLines(buffer.split(/\r?\n/));
 };
 
-const EmptyHero = ({ onSelectPrompt, onOpenSettings, hasKey }) => {
+const EmptyHero = ({ onSelectPrompt, onOpenSettings, onOpenInfo, hasKey }) => {
   const pulse = useRef(new Animated.Value(0.65)).current;
   const scale = useRef(new Animated.Value(1)).current;
   const fadeUp = useRef(new Animated.Value(0)).current;
@@ -235,8 +236,8 @@ const EmptyHero = ({ onSelectPrompt, onOpenSettings, hasKey }) => {
       <Text style={styles.heroBrand}>Tessarc</Text>
       <Text style={styles.emptyChatText}>One workspace for every frontier AI.</Text>
       <View style={styles.trustStrip}>
-        <Text style={styles.trustText}>Gemini (Free Tier) • Claude • GPT-4o • DeepSeek</Text>
-        <Text style={styles.trustSub}>Local-first privacy • Live Web • Direct file export</Text>
+        <Text style={styles.trustText}>Gemini (Free Tier) • Claude • OpenAI • DeepSeek • Llama</Text>
+        <Text style={styles.trustSub}>Keys stay strictly in your browser (localStorage) — zero server tracking</Text>
       </View>
       {!hasKey && (
         <TouchableOpacity style={styles.heroPrimaryCta} onPress={onOpenSettings} activeOpacity={0.85}>
@@ -251,6 +252,15 @@ const EmptyHero = ({ onSelectPrompt, onOpenSettings, hasKey }) => {
             <Text style={styles.starterSub}>{item.sub}</Text>
           </TouchableOpacity>
         ))}
+      </View>
+      <View style={styles.heroFooterLinks}>
+        <TouchableOpacity onPress={onOpenInfo} style={styles.footerLinkBtn}>
+          <Text style={styles.footerLinkText}>? Privacy & Formats</Text>
+        </TouchableOpacity>
+        <Text style={styles.footerDot}>•</Text>
+        <TouchableOpacity onPress={() => Linking.openURL(GITHUB_URL)} style={styles.footerLinkBtn}>
+          <Text style={styles.footerLinkText}>Open Source (GitHub) ↗</Text>
+        </TouchableOpacity>
       </View>
     </Animated.View>
   );
@@ -340,6 +350,7 @@ const CodeBlock = ({ code, filename, language }) => {
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('chat');
   const [showModels, setShowModels] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState('google');
   const [modelSearch, setModelSearch] = useState('');
   const [providers, setProviders] = useState(DEFAULT_PROVIDERS);
@@ -584,7 +595,6 @@ export default function App() {
 
       const canStream = Platform.OS === 'web' && typeof ReadableStream !== 'undefined';
 
-      // ROUTE 1: NATIVE GOOGLE AI STUDIO (WITH SAFETY/MAX_TOKENS CHECK + FULL BUFFER FLUSH)
       if (isGeminiModel && geminiKey.trim()) {
         let gModel = selectedModel.id.replace('google/', '').trim();
         if (!gModel.startsWith('gemini') || gModel.includes('2.0') || gModel.includes('1.5')) {
@@ -637,7 +647,6 @@ export default function App() {
         return { raw: data.candidates?.[0]?.content?.parts?.filter(p => !p.thought).map(p => p.text || '').join('') || '', annotations: [] };
       }
 
-      // ROUTE 2: DIRECT ANTHROPIC (CLAUDE - PAID)
       if (isClaudeModel && anthropicKey.trim()) {
         const formattedMsgs = msgsToSend.map(m => m.images?.length ? ({
           role: m.role,
@@ -664,7 +673,6 @@ export default function App() {
         return { raw: data.content?.[0]?.text || '', annotations: [] };
       }
 
-      // ROUTE 3: OPENROUTER (STREAMING)
       const openRouterMsgs = msgsToSend.map(m => m.images?.length ? ({
         role: m.role,
         content: [{ type: 'text', text: m.content }, ...m.images.map(url => ({ type: 'image_url', image_url: { url } }))]
@@ -858,7 +866,11 @@ export default function App() {
           </View>
         </View>
         <ScrollView style={styles.settingsContent} contentContainerStyle={styles.desktopCenter}>
-          
+          <View style={styles.privacyBanner}>
+            <Text style={styles.privacyBannerTitle}>🔒 100% Local-First Privacy</Text>
+            <Text style={styles.privacyBannerBody}>Your API keys and chat history are stored strictly in your browser’s localStorage. Requests go straight from your device to Google, Anthropic, or OpenRouter—we never see or log your keys.</Text>
+          </View>
+
           <View style={styles.badgeRow}>
             <Text style={styles.sectionLabel}>GOOGLE GEMINI API KEY</Text>
             <View style={styles.freeDayBadge}><Text style={styles.freeDayBadgeText}>FREE (UP TO 500/DAY)</Text></View>
@@ -926,6 +938,27 @@ export default function App() {
         </View>
       </View>
 
+      {/* PRIVACY & SUPPORTED FORMATS INFO MODAL */}
+      <Modal visible={showInfoModal} transparent animationType="fade" onRequestClose={() => setShowInfoModal(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.noticeCard}>
+            <Text style={styles.noticeHeader}>About Tessarc</Text>
+            <Text style={styles.infoItemTitle}>🔒 Local-First Privacy</Text>
+            <Text style={styles.infoItemBody}>API keys and chat logs live strictly in your browser’s localStorage and connect directly to Google, Anthropic, or OpenRouter—zero middleman servers.</Text>
+            <Text style={styles.infoItemTitle}>📄 Direct File Export & Live Preview</Text>
+            <Text style={styles.infoItemBody}>Ask Tessarc to put code or data in a file to export `.html`, `.csv`, `.py`, `.lua`, `.js`, `.md`, or `.txt`. HTML files run live right inside the app.</Text>
+            <Text style={styles.infoItemTitle}>👁 Vision & Web</Text>
+            <Text style={styles.infoItemBody}>Supports image uploads, up to 70s videos, live weather, and real-time web citations.</Text>
+            <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL(GITHUB_URL)}>
+              <Text style={[styles.noticeBtnSecondaryText, { color: '#60A5FA' }]}>Inspect Source Code on GitHub ↗</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.noticeBtnPrimary} onPress={() => setShowInfoModal(false)}>
+              <Text style={styles.noticeBtnPrimaryText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={Boolean(previewFile)} animationType="slide" onRequestClose={() => setPreviewFile(null)}>
         <SafeAreaView style={styles.previewModalRoot}>
           <View style={styles.previewModalHeader}>
@@ -980,7 +1013,7 @@ export default function App() {
         <View style={styles.modalBackdrop}>
           <View style={styles.noticeCard}>
             <Text style={styles.noticeHeader}>🔑 Setup Required</Text>
-            <Text style={styles.noticeBody}>To chat with models, please add a free Google Gemini key or an OpenRouter key in Settings.</Text>
+            <Text style={styles.noticeBody}>To chat with models, add a free Google Gemini key or OpenRouter key in Settings. Your keys stay locally in your browser.</Text>
             <TouchableOpacity style={styles.noticeBtnPrimary} onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}><Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text></TouchableOpacity>
             <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL('https://aistudio.google.com/apikey')}><Text style={styles.noticeBtnSecondaryText}>Get Free Google Gemini Key ↗</Text></TouchableOpacity>
             <TouchableOpacity style={styles.checkboxContainer} onPress={toggleDontShowAgain}>
@@ -1059,7 +1092,10 @@ export default function App() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <View style={styles.menuFooter}><TouchableOpacity style={styles.settingsRow} onPress={() => { closeMenu(); setCurrentScreen('settings'); }}><Text style={styles.settingsRowText}>⚙ Settings</Text></TouchableOpacity></View>
+            <View style={styles.menuFooter}>
+              <TouchableOpacity style={styles.settingsRow} onPress={() => { closeMenu(); setCurrentScreen('settings'); }}><Text style={styles.settingsRowText}>⚙ Settings</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.settingsRow} onPress={() => { closeMenu(); setShowInfoModal(true); }}><Text style={styles.settingsRowText}>? Privacy & Formats</Text></TouchableOpacity>
+            </View>
           </Animated.View>
           <Pressable style={styles.menuCloseArea} onPress={closeMenu} />
         </View>
@@ -1080,7 +1116,7 @@ export default function App() {
           keyboardShouldPersistTaps="handled"
         >
           {messages.length === 0 && !isLoading ? (
-            <EmptyHero onSelectPrompt={handleSelectStarter} onOpenSettings={() => setCurrentScreen('settings')} hasKey={hasAnyKey} />
+            <EmptyHero onSelectPrompt={handleSelectStarter} onOpenSettings={() => setCurrentScreen('settings')} onOpenInfo={() => setShowInfoModal(true)} hasKey={hasAnyKey} />
           ) : (
             messages.map((item, index) => {
               const isUser = item.role === 'user';
@@ -1199,9 +1235,13 @@ const styles = StyleSheet.create({
   activeHistoryItemText: { color: '#FFF', fontWeight: '600' },
   deleteBtn: { padding: 4 },
   deleteBtnText: { color: '#555', fontSize: 12 },
-  menuFooter: { borderTopWidth: 1, borderTopColor: '#222', paddingTop: 15 },
-  settingsRowText: { color: '#FFF', fontSize: 16 },
+  menuFooter: { borderTopWidth: 1, borderTopColor: '#222', paddingTop: 10, gap: 6 },
+  settingsRow: { paddingVertical: 6 },
+  settingsRowText: { color: '#FFF', fontSize: 15 },
   settingsContent: { padding: 20 },
+  privacyBanner: { backgroundColor: '#0E1713', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#1B3A2A', marginBottom: 20 },
+  privacyBannerTitle: { color: '#4ADE80', fontSize: 13, fontWeight: '800', marginBottom: 4 },
+  privacyBannerBody: { color: '#9CA3AF', fontSize: 12, lineHeight: 18 },
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   sectionLabel: { color: '#888', fontSize: 12, fontWeight: '800', letterSpacing: 1.5 },
   freeDayBadge: { backgroundColor: '#123321', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#1F5435' },
@@ -1216,12 +1256,14 @@ const styles = StyleSheet.create({
   linkButtonText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
   contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#2C2C34', textAlignVertical: 'top' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
-  noticeCard: { backgroundColor: '#141416', width: '100%', maxWidth: 400, borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
-  noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
+  noticeCard: { backgroundColor: '#141416', width: '100%', maxWidth: 420, borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
+  noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 12 },
   noticeBody: { color: '#AAA', fontSize: 14, lineHeight: 20, marginBottom: 18 },
+  infoItemTitle: { color: '#FFF', fontSize: 13, fontWeight: '700', marginBottom: 3, marginTop: 6 },
+  infoItemBody: { color: '#999', fontSize: 12, lineHeight: 18, marginBottom: 8 },
   noticeBtnPrimary: { backgroundColor: '#FFF', paddingVertical: 13, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
   noticeBtnPrimaryText: { color: '#000', fontSize: 15, fontWeight: '700' },
-  noticeBtnSecondary: { backgroundColor: '#202024', paddingVertical: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
+  noticeBtnSecondary: { backgroundColor: '#202024', paddingVertical: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 14 },
   noticeBtnSecondaryText: { color: '#4ADE80', fontSize: 14, fontWeight: '700' },
   checkboxContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   checkboxBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#555', marginRight: 10, justifyContent: 'center', alignItems: 'center' },
@@ -1246,6 +1288,10 @@ const styles = StyleSheet.create({
   starterIcon: { color: '#4A90E2', fontSize: 15, fontWeight: '800', marginBottom: 6 },
   starterTitle: { color: '#FFF', fontSize: 13, fontWeight: '700', marginBottom: 2 },
   starterSub: { color: '#888', fontSize: 11 },
+  heroFooterLinks: { flexDirection: 'row', alignItems: 'center', marginTop: 18, gap: 10 },
+  footerLinkBtn: { paddingVertical: 4, paddingHorizontal: 6 },
+  footerLinkText: { color: '#6E6E7A', fontSize: 12, fontWeight: '600' },
+  footerDot: { color: '#444', fontSize: 12 },
   thinkingCard: { alignSelf: 'flex-start', backgroundColor: '#121215', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16, borderWidth: 1, borderColor: '#222228', marginVertical: 8 },
   thinkingText: { color: '#9CC2F7', fontSize: 13, fontWeight: '600' },
   userMsgWrap: { alignSelf: 'flex-end', alignItems: 'flex-end', marginVertical: 8, maxWidth: '88%', width: '88%' },
