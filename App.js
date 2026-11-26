@@ -97,10 +97,7 @@ const cleanLinksAndExtractSources = (rawText, annotations = [], extraSources = [
       sources.push({ url: cleanUrl, domain, title: title || domain });
     }
   };
-  (annotations || []).forEach(a => {
-    if (a?.url_citation?.url) addSource(a.url_citation.url, a.url_citation.title);
-    else if (a?.url) addSource(a.url, a.title);
-  });
+  (annotations || []).forEach(a => { if (a?.url_citation?.url) addSource(a.url_citation.url, a.url_citation.title); });
 
   const isDomainOrNum = (lbl) => /^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(lbl.trim()) || /^\d+$/.test(lbl.trim());
   const parts = (rawText || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
@@ -194,20 +191,6 @@ const processVideo = (file) => new Promise((resolve, reject) => {
   video.src = url; video.load();
 });
 
-const fetchUrlContent = async (rawUrl) => {
-  const cleanUrl = rawUrl.replace(/[),.;]+$/, '');
-  let domain = cleanUrl;
-  try { domain = new URL(cleanUrl).hostname.replace(/^www\./, ''); } catch {}
-  try {
-    const res = await fetch(`https://r.jina.ai/${cleanUrl}`);
-    if (!res.ok) return { url: cleanUrl, domain, text: null };
-    const txt = await res.text();
-    return { url: cleanUrl, domain, text: txt && txt.trim().length > 15 ? txt.trim().slice(0, 6500) : null };
-  } catch {
-    return { url: cleanUrl, domain, text: null };
-  }
-};
-
 const readSSE = async (res, onEvent, onPulse) => {
   const reader = res.body.getReader();
   const decoder = new TextDecoder('utf-8');
@@ -252,18 +235,16 @@ const EmptyHero = ({ onSelectPrompt, onOpenSettings, onOpenInfo, hasKey, demoCre
       <Animated.View style={[styles.heroOrb, { opacity: pulse, transform: [{ scale }] }]}><Text style={styles.emptyLogo}>✧</Text></Animated.View>
       <Text style={styles.heroBrand}>Tessarc</Text>
       <Text style={styles.emptyChatText}>One workspace for every frontier AI.</Text>
-      <View style={styles.trustStrip}>
-        <Text style={styles.trustText}>Gemini (Free Tier) • Claude • OpenAI • DeepSeek • Llama</Text>
-        <Text style={styles.trustSub}>Keys stay strictly in your browser (localStorage) — zero server tracking</Text>
+      
+      {/* PROMINENT FREE DEMO BANNER */}
+      <View style={styles.demoHeroCard}>
+        <Text style={styles.demoHeroTitle}>⚡ Free Demo Mode Active</Text>
+        <Text style={styles.demoHeroSub}>You have <Text style={{color: '#4ADE80', fontWeight: '800'}}>{demoCredits} free messages</Text> left. Chat instantly with zero API setup!</Text>
+        <TouchableOpacity style={styles.heroSettingsLink} onPress={onOpenSettings} activeOpacity={0.8}>
+          <Text style={styles.heroSettingsLinkText}>Or connect your own API key in Settings →</Text>
+        </TouchableOpacity>
       </View>
-      {!hasKey && (
-        <View style={styles.demoBannerWrap}>
-          <View style={styles.demoPill}><Text style={styles.demoPillText}>⚡ Free Demo: {demoCredits} messages left</Text></View>
-          <TouchableOpacity style={styles.heroSecondaryCta} onPress={onOpenSettings} activeOpacity={0.85}>
-            <Text style={styles.heroSecondaryCtaText}>Or connect your own key →</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+
       <View style={styles.starterGrid}>
         {STARTER_PROMPTS.map((item, idx) => (
           <TouchableOpacity key={idx} style={styles.starterCard} onPress={() => onSelectPrompt(item)} activeOpacity={0.75}>
@@ -280,6 +261,18 @@ const EmptyHero = ({ onSelectPrompt, onOpenSettings, onOpenInfo, hasKey, demoCre
       </View>
     </Animated.View>
   );
+};
+
+const AnimatedBubble = ({ children, style }) => {
+  const fade = useRef(new Animated.Value(0)).current;
+  const lift = useRef(new Animated.Value(12)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.spring(lift, { toValue: 0, tension: 80, friction: 12, useNativeDriver: true })
+    ]).start();
+  }, []);
+  return <Animated.View style={[style, { opacity: fade, transform: [{ translateY: lift }] }]}>{children}</Animated.View>;
 };
 
 const ThinkingIndicator = ({ statusText, webActive }) => {
@@ -445,7 +438,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState('');
   const [geminiKey, setGeminiKey] = useState(''); 
   const [anthropicKey, setAnthropicKey] = useState(''); 
-  const [demoCredits, setDemoCredits] = useState(5); // 5 free demo messages for any visitor!
+  const [demoCredits, setDemoCredits] = useState(5);
   const [userContext, setUserContext] = useState('');
   const [savedChats, setSavedChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
@@ -464,6 +457,8 @@ export default function App() {
 
   const [attachments, setAttachments] = useState([]);
   const [mediaNotice, setMediaNotice] = useState('');
+  const [showNoticeModal, setShowNoticeModal] = useState(false);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
 
   const scrollRef = useRef(null);
   const abortRef = useRef(null);
@@ -493,6 +488,10 @@ export default function App() {
 
         const storedCredits = await AsyncStorage.getItem('@tessarc_demo_credits_v1');
         if (storedCredits !== null) setDemoCredits(Number(storedCredits));
+
+        const hideNotice = await AsyncStorage.getItem('@council_hide_api_notice');
+        if (hideNotice === 'true') setDontShowAgain(true);
+        else if (!storedKey && !storedGemini && !storedAnthropic) setShowNoticeModal(true);
       } catch (err) {}
     })();
 
@@ -639,9 +638,8 @@ export default function App() {
     const isGeminiModel = selectedModel.id.includes('gemini');
     const isClaudeModel = selectedModel.id.includes('claude');
     const hasAnyKey = Boolean(apiKey.trim() || geminiKey.trim() || anthropicKey.trim());
-
-    // ZERO-KEY DEMO MODE: If user has no keys, check demo credits!
     const isDemoMode = !hasAnyKey;
+
     if (isDemoMode && demoCredits <= 0) {
       setMessages([...chatHistory, { 
         role: 'assistant', 
@@ -717,7 +715,6 @@ export default function App() {
         };
       }
 
-      // ROUTE 0: ZERO-KEY FREE DEMO (Calls our secure /api/demo serverless function!)
       if (isDemoMode) {
         setThinkingStatus('⚡ Running Free Demo...');
         const res = await fetch('/api/demo', {
@@ -729,7 +726,6 @@ export default function App() {
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data?.error || 'Demo service unavailable. Add your own key in Settings!');
         
-        // Deduct 1 demo credit
         const newCredits = Math.max(0, demoCredits - 1);
         setDemoCredits(newCredits);
         AsyncStorage.setItem('@tessarc_demo_credits_v1', String(newCredits)).catch(() => {});
@@ -738,16 +734,15 @@ export default function App() {
       }
 
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
-      let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally. Use emojis naturally 😂✨. If [LIVE WEBPAGE CONTENT] is included, you HAVE visited and read that URL—answer directly from its contents and NEVER claim you cannot browse links! If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
+      let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally. Use emojis naturally 😂✨. If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       const canStream = Platform.OS === 'web' && typeof ReadableStream !== 'undefined';
 
-      // ROUTE 1: NATIVE GOOGLE AI STUDIO
       if (isGeminiModel && geminiKey.trim()) {
         let gModel = selectedModel.id.replace('google/', '').trim();
         if (!gModel.startsWith('gemini') || gModel.includes('2.0') || gModel.includes('1.5')) {
-          gModel = 'gemini-3.5-flash-lite';
+          gModel = 'gemini-3.8-flash';
         }
 
         const contents = recentMsgs.map(m => {
@@ -762,21 +757,16 @@ export default function App() {
           return { role: m.role === 'assistant' ? 'model' : 'user', parts };
         });
 
-        const gBody = {
-          contents,
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          generationConfig: { maxOutputTokens: 4096 }
-        };
-        if (useWebPlugin && allFrames.length === 0 && !urlContextText) {
-          gBody.tools = [{ google_search: {} }];
-        }
-
         const endpoint = canStream ? `${gModel}:streamGenerateContent?alt=sse` : `${gModel}:generateContent`;
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${endpoint}`, {
           method: 'POST',
           signal: controller.signal,
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey.trim() },
-          body: JSON.stringify(gBody)
+          body: JSON.stringify({
+            contents,
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            generationConfig: { maxOutputTokens: 4096 }
+          })
         });
 
         if (!res.ok) {
@@ -814,7 +804,6 @@ export default function App() {
         };
       }
 
-      // ROUTE 2: DIRECT ANTHROPIC (CLAUDE - PAID)
       if (isClaudeModel && anthropicKey.trim()) {
         const formattedMsgs = recentMsgs.map(m => m.images?.length ? ({
           role: m.role,
@@ -842,7 +831,6 @@ export default function App() {
         return { raw: data.content?.[0]?.text || '', annotations: [] };
       }
 
-      // ROUTE 3: OPENROUTER (STREAMING)
       const openRouterMsgs = recentMsgs.map(m => m.images?.length ? ({
         role: m.role,
         content: [{ type: 'text', text: m.content }, ...m.images.map(url => ({ type: 'image_url', image_url: { url } }))]
@@ -884,7 +872,7 @@ export default function App() {
       try {
         result = await attemptFetch(chatHistory, webSearchOn);
       } catch (webErr) {
-        if (webErr.name !== 'AbortError' && webSearchOn && (webErr.message.includes('402') || webErr.message.includes('400') || webErr.message.toLowerCase().includes('credit') || webErr.message.toLowerCase().includes('tool'))) {
+        if (webErr.name !== 'AbortError' && webSearchOn && (webErr.message.includes('402') || webErr.message.toLowerCase().includes('credit'))) {
           setThinkingStatus('🌐 Switching to free web lookup...');
           result = await attemptFetch(chatHistory, false);
         } else { throw webErr; }
@@ -961,70 +949,6 @@ export default function App() {
     setPreviewTab(isWeb && Platform.OS === 'web' ? 'run' : 'code');
     setPreviewCopied(false);
     setPreviewFile({ filename, content, isWeb });
-  };
-
-  const renderMessageContent = (item) => {
-    if (item.role === 'user') {
-      return (
-        <View style={{ width: '100%' }}>
-          {item.images?.length > 0 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-              {item.images.map((uri, idx) => <Image key={idx} source={{ uri }} style={styles.msgImageThumb} />)}
-            </ScrollView>
-          )}
-          <Text style={styles.userMsgText}>{item.content}</Text>
-        </View>
-      );
-    }
-
-    const mentionedFile = (item.content || '').match(/`?([a-z0-9_-]+\.(?:html?|lua|py|js|jsx|ts|css|json|csv|txt|md|sql|sh))`?/i)?.[1];
-    const parts = (item.content || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
-    return (
-      <View style={{ width: '100%' }}>
-        {parts.map((part, index) => {
-          if (part.startsWith('[[[FILE:')) {
-            const m = part.match(/^\[\[\[FILE:(.*?)\]\]\]([\s\S]*?)\[\[\[\/FILE\]\]\]$/);
-            if (m) {
-              const fname = m[1].trim() || mentionedFile || 'file.txt';
-              let fcode = m[2].trim();
-              if (fcode.startsWith('```')) {
-                const nl = fcode.indexOf('\n');
-                fcode = (nl !== -1 ? fcode.slice(nl + 1) : fcode.slice(3)).replace(/```$/, '').trim();
-              }
-              return <FileCard key={index} filename={fname} content={fcode} onPreview={() => openFilePreview(fname, fcode)} />;
-            }
-          }
-          if (part.startsWith('```') && part.endsWith('```')) {
-            const firstBreak = part.indexOf('\n');
-            let lang = 'txt', rawFile = null, code = '';
-            if (firstBreak !== -1) {
-              const [rawLang, parsedFile] = part.slice(3, firstBreak).trim().split(':');
-              lang = (rawLang || 'txt').trim().toLowerCase();
-              rawFile = parsedFile ? parsedFile.trim() : null;
-              code = part.slice(firstBreak + 1, -3).trim();
-            } else { code = part.slice(3, -3).trim(); }
-            const filename = rawFile || mentionedFile || `tessarc-file.${EXT_MAP[lang] || 'txt'}`;
-            if (item.asFile || rawFile) {
-              return <FileCard key={index} filename={filename} content={code} onPreview={() => openFilePreview(filename, code)} />;
-            }
-            return <CodeBlock key={index} code={code} filename={filename} language={lang} />;
-          }
-          return part.trim() ? <View key={index}>{renderRichText(part)}</View> : null;
-        })}
-        {item.sources?.length > 0 && (
-          <View style={styles.sourcesWrap}>
-            <Text style={styles.sourcesLabel}>VISITED SOURCES</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {item.sources.map((s, idx) => (
-                <TouchableOpacity key={idx} style={styles.sourcePill} onPress={() => Linking.openURL(s.url)} activeOpacity={0.7}>
-                  <Text style={styles.sourcePillText} numberOfLines={1}>🌐 {s.domain} ↗</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-      </View>
-    );
   };
 
   if (currentScreen === 'settings') {
@@ -1179,6 +1103,22 @@ export default function App() {
             </ScrollView>
           )}
         </SafeAreaView>
+      </Modal>
+
+      <Modal visible={showNoticeModal && !hasAnyKey && !dontShowAgain} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.noticeCard}>
+            <Text style={styles.noticeHeader}>🔑 Setup Required</Text>
+            <Text style={styles.noticeBody}>To chat with models, please add a free Google Gemini key or an OpenRouter key in Settings.</Text>
+            <TouchableOpacity style={styles.noticeBtnPrimary} onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}><Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL('https://aistudio.google.com/apikey')}><Text style={styles.noticeBtnSecondaryText}>Get Free Google Gemini Key ↗</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.checkboxContainer} onPress={toggleDontShowAgain}>
+              <View style={[styles.checkboxBox, dontShowAgain && styles.checkboxChecked]}>{dontShowAgain && <Text style={styles.checkboxCheck}>✓</Text>}</View>
+              <Text style={styles.checkboxLabel}>Don't show this again</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.noticeDismiss} onPress={() => setShowNoticeModal(false)}><Text style={styles.noticeDismissText}>Dismiss</Text></TouchableOpacity>
+          </View>
+        </View>
       </Modal>
 
       <Modal visible={showModels} transparent animationType="none" onRequestClose={closeModelSheet}>
@@ -1412,22 +1352,27 @@ const styles = StyleSheet.create({
   linkButtonText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
   contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#2C2C34', textAlignVertical: 'top' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
-  noticeCard: { backgroundColor: '#141416', width: '100%', maxWidth: 420, borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
-  noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 12 },
+  noticeCard: { backgroundColor: '#141416', width: '100%', maxWidth: 400, borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
+  noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
   noticeBody: { color: '#AAA', fontSize: 14, lineHeight: 20, marginBottom: 18 },
-  infoItemTitle: { color: '#FFF', fontSize: 13, fontWeight: '700', marginBottom: 3, marginTop: 6 },
-  infoItemBody: { color: '#999', fontSize: 12, lineHeight: 18, marginBottom: 8 },
   noticeBtnPrimary: { backgroundColor: '#FFF', paddingVertical: 13, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
   noticeBtnPrimaryText: { color: '#000', fontSize: 15, fontWeight: '700' },
-  noticeBtnSecondary: { backgroundColor: '#202024', paddingVertical: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 14 },
-  noticeBtnSecondaryText: { color: '#4ADE80', fontSize: 14, fontWeight: '700' },
+  noticeBtnSecondary: { backgroundColor: '#202024', paddingVertical: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
+  noticeBtnSecondaryText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
+  checkboxContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  checkboxBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#555', marginRight: 10, justifyContent: 'center', alignItems: 'center' },
+  checkboxChecked: { backgroundColor: '#4A90E2', borderColor: '#4A90E2' },
+  checkboxCheck: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  checkboxLabel: { color: '#888', fontSize: 13 },
+  noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
+  noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
   chatScrollContent: { padding: 20, paddingBottom: 30 },
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 20 },
   heroOrb: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#14141A', borderWidth: 1, borderColor: '#343440', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
   emptyLogo: { fontSize: 30, color: '#FFF' },
   heroBrand: { color: '#FFF', fontSize: 34, fontWeight: '900', letterSpacing: -1, marginBottom: 6 },
   emptyChatText: { color: '#CCC', fontSize: 16, fontWeight: '500', marginBottom: 14, textAlign: 'center' },
-  trustStrip: { alignItems: 'center', backgroundColor: '#0E0E12', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: '#22222A', marginBottom: 14 },
+  trustStrip: { alignItems: 'center', backgroundColor: '#0E0E12', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: '#22222A', marginBottom: 18 },
   trustText: { color: '#9CC2F7', fontSize: 12, fontWeight: '700', letterSpacing: 0.3, textAlign: 'center', marginBottom: 3 },
   trustSub: { color: '#777784', fontSize: 11, fontWeight: '500', textAlign: 'center' },
   demoBannerWrap: { alignItems: 'center', marginBottom: 18 },
@@ -1449,8 +1394,6 @@ const styles = StyleSheet.create({
   userMsgWrap: { alignSelf: 'flex-end', alignItems: 'flex-end', marginVertical: 8, maxWidth: '88%', width: '88%' },
   userMsg: { backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, borderWidth: 1, borderColor: '#222', maxWidth: '100%', overflow: 'hidden' },
   userMsgText: { color: '#FFF', fontSize: 15, lineHeight: 23, flexShrink: 1, ...(Platform.OS === 'web' ? { overflowWrap: 'anywhere', wordBreak: 'break-word' } : {}) },
-  expandBtn: { marginTop: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#2A2A32' },
-  expandBtnText: { color: '#7BB1F5', fontSize: 12, fontWeight: '700' },
   editingBubble: { borderColor: '#4A90E2', backgroundColor: '#162030' },
   editTrigger: { paddingTop: 5, paddingHorizontal: 6 },
   editTriggerText: { color: '#666', fontSize: 12, fontWeight: '600' },
@@ -1494,7 +1437,7 @@ const styles = StyleSheet.create({
   copyBtnText: { color: '#CCC', fontSize: 12, fontWeight: '600' },
   codeScroll: { padding: 14 },
   codeText: { color: '#E0E0E0', fontSize: 14, lineHeight: 22, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  mediaNoticeText: { color: '#F5A623', fontSize: 12, paddingHorizontal: 20, paddingVertical: 6 },
+  mediaNoticeText: { color: '#F5A623', fontSize: '12px', paddingHorizontal: 20, paddingVertical: 6 },
   previewBar: { maxHeight: 74, paddingHorizontal: 15, paddingVertical: 6, backgroundColor: '#080808', borderTopWidth: 1, borderTopColor: '#151515' },
   previewCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#161618', borderRadius: 12, padding: 6, marginRight: 10, borderWidth: 1, borderColor: '#252528' },
   previewThumb: { width: 44, height: 44, borderRadius: 8, marginRight: 8 },
@@ -1504,7 +1447,7 @@ const styles = StyleSheet.create({
   inputOuter: { borderTopWidth: 1, borderTopColor: '#1C1C24', backgroundColor: '#000' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingBottom: 20 },
   attachBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#22222A', justifyContent: 'center', alignItems: 'center', marginRight: 6, borderWidth: 1, borderColor: '#3E3E4A' },
-  webBtnActive: { backgroundColor: '#163052', borderColor: '#4A90E2' },
+  webBtnActive: { hindsight: 'none', backgroundColor: '#163052', borderColor: '#4A90E2' },
   attachTxt: { fontSize: 17 },
   input: { flex: 1, backgroundColor: '#1D1D24', color: '#FFF', paddingHorizontal: 18, paddingVertical: 13, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#3E3E4C' },
   sendBtn: { marginLeft: 8, backgroundColor: '#FFF', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
