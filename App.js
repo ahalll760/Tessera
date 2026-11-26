@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, memo } from 'react';
 import { 
   StyleSheet, Text, View, TextInput, TouchableOpacity, Image,
   SafeAreaView, KeyboardAvoidingView, Platform, 
@@ -13,8 +13,8 @@ const DEFAULT_PROVIDERS = [
     id: 'google',
     name: 'Google & Gemini (Free)',
     models: [
-      { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Smartest Free)', isVision: true, free: true },
       { id: 'google/gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite (500/Day Free)', isVision: true, free: true },
+      { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Deep Think)', isVision: true, free: true },
       { id: 'google/gemini-3.6-flash', name: 'Gemini 3.6 Flash (Free)', isVision: true, free: true },
       { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite (Free)', isVision: true, free: true }
     ]
@@ -254,28 +254,12 @@ const EmptyHero = ({ onSelectPrompt, onOpenSettings, onOpenInfo, hasKey }) => {
         ))}
       </View>
       <View style={styles.heroFooterLinks}>
-        <TouchableOpacity onPress={onOpenInfo} style={styles.footerLinkBtn}>
-          <Text style={styles.footerLinkText}>? Privacy & Formats</Text>
-        </TouchableOpacity>
+        <TouchableOpacity onPress={onOpenInfo} style={styles.footerLinkBtn}><Text style={styles.footerLinkText}>? Privacy & Formats</Text></TouchableOpacity>
         <Text style={styles.footerDot}>•</Text>
-        <TouchableOpacity onPress={() => Linking.openURL(GITHUB_URL)} style={styles.footerLinkBtn}>
-          <Text style={styles.footerLinkText}>Open Source (GitHub) ↗</Text>
-        </TouchableOpacity>
+        <TouchableOpacity onPress={() => Linking.openURL(GITHUB_URL)} style={styles.footerLinkBtn}><Text style={styles.footerLinkText}>Open Source (GitHub) ↗</Text></TouchableOpacity>
       </View>
     </Animated.View>
   );
-};
-
-const AnimatedBubble = ({ children, style }) => {
-  const fade = useRef(new Animated.Value(0)).current;
-  const lift = useRef(new Animated.Value(12)).current;
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }),
-      Animated.spring(lift, { toValue: 0, tension: 80, friction: 12, useNativeDriver: true })
-    ]).start();
-  }, []);
-  return <Animated.View style={[style, { opacity: fade, transform: [{ translateY: lift }] }]}>{children}</Animated.View>;
 };
 
 const ThinkingIndicator = ({ statusText, webActive }) => {
@@ -347,6 +331,93 @@ const CodeBlock = ({ code, filename, language }) => {
   );
 };
 
+// --- MEMOIZED MESSAGE ITEM: Prevents giant code bubbles from lagging while streaming/typing! ---
+const MessageItem = memo(({ item, index, isEditing, showEditBtn, onStartEdit, onOpenPreview }) => {
+  const [expanded, setExpanded] = useState(false);
+  const isUser = item.role === 'user';
+
+  if (isUser) {
+    const raw = item.content || '';
+    const lineCount = raw.split('\n').length;
+    const isLong = lineCount > 10 || raw.length > 500;
+    return (
+      <View style={styles.userMsgWrap}>
+        <View style={[styles.userMsg, isEditing && styles.editingBubble]}>
+          {item.images?.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+              {item.images.map((uri, idx) => <Image key={idx} source={{ uri }} style={styles.msgImageThumb} />)}
+            </ScrollView>
+          )}
+          <Text style={styles.userMsgText} numberOfLines={isLong && !expanded ? 8 : undefined}>
+            {raw}
+          </Text>
+          {isLong && (
+            <TouchableOpacity onPress={() => setExpanded(!expanded)} style={styles.expandBtn}>
+              <Text style={styles.expandBtnText}>
+                {expanded ? 'Collapse ▲' : `Show all (${lineCount} lines) ▾`}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {showEditBtn && (
+          <TouchableOpacity onPress={() => onStartEdit(index)} style={styles.editTrigger}>
+            <Text style={styles.editTriggerText}>✎ Edit</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
+  const mentionedFile = (item.content || '').match(/`?([a-z0-9_-]+\.(?:html?|lua|py|js|jsx|ts|css|json|csv|txt|md|sql|sh))`?/i)?.[1];
+  const parts = (item.content || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
+  return (
+    <View style={styles.aiMsg}>
+      {parts.map((part, i) => {
+        if (part.startsWith('[[[FILE:')) {
+          const m = part.match(/^\[\[\[FILE:(.*?)\]\]\]([\s\S]*?)\[\[\[\/FILE\]\]\]$/);
+          if (m) {
+            const fname = m[1].trim() || mentionedFile || 'file.txt';
+            let fcode = m[2].trim();
+            if (fcode.startsWith('```')) {
+              const nl = fcode.indexOf('\n');
+              fcode = (nl !== -1 ? fcode.slice(nl + 1) : fcode.slice(3)).replace(/```$/, '').trim();
+            }
+            return <FileCard key={i} filename={fname} content={fcode} onPreview={() => onOpenPreview(fname, fcode)} />;
+          }
+        }
+        if (part.startsWith('```') && part.endsWith('```')) {
+          const firstBreak = part.indexOf('\n');
+          let lang = 'txt', rawFile = null, code = '';
+          if (firstBreak !== -1) {
+            const [rawLang, parsedFile] = part.slice(3, firstBreak).trim().split(':');
+            lang = (rawLang || 'txt').trim().toLowerCase();
+            rawFile = parsedFile ? parsedFile.trim() : null;
+            code = part.slice(firstBreak + 1, -3).trim();
+          } else { code = part.slice(3, -3).trim(); }
+          const filename = rawFile || mentionedFile || `tessarc-file.${EXT_MAP[lang] || 'txt'}`;
+          if (item.asFile || rawFile) {
+            return <FileCard key={i} filename={filename} content={code} onPreview={() => onOpenPreview(filename, code)} />;
+          }
+          return <CodeBlock key={i} code={code} filename={filename} language={lang} />;
+        }
+        return part.trim() ? <View key={i}>{renderRichText(part)}</View> : null;
+      })}
+      {item.sources?.length > 0 && (
+        <View style={styles.sourcesWrap}>
+          <Text style={styles.sourcesLabel}>VISITED SOURCES</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {item.sources.map((s, idx) => (
+              <TouchableOpacity key={idx} style={styles.sourcePill} onPress={() => Linking.openURL(s.url)} activeOpacity={0.7}>
+                <Text style={styles.sourcePillText} numberOfLines={1}>🌐 {s.domain} ↗</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+    </View>
+  );
+});
+
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('chat');
   const [showModels, setShowModels] = useState(false);
@@ -385,6 +456,7 @@ export default function App() {
   const scrollRef = useRef(null);
   const abortRef = useRef(null);
   const streamAccumRef = useRef('');
+  const lastUiFlushRef = useRef(0);
   const slideAnim = useRef(new Animated.Value(-350)).current;
   const sheetY = useRef(new Animated.Value(500)).current;
   const sheetFade = useRef(new Animated.Value(0)).current;
@@ -426,8 +498,8 @@ export default function App() {
         setAllLiveModels(formatted);
         const freeModels = [{ id: 'openrouter/free', name: 'Auto-Router (Fast)', isVision: true, free: true }, ...formatted.filter(m => m.free && m.id !== 'openrouter/free').slice(0, 20)];
         const googleModels = [
-          { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Smartest Free)', isVision: true, free: true },
           { id: 'google/gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite (500/Day Free)', isVision: true, free: true },
+          { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Deep Think)', isVision: true, free: true },
           { id: 'google/gemini-3.6-flash', name: 'Gemini 3.6 Flash (Free)', isVision: true, free: true },
           ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini') || m.name.toLowerCase().includes('hydrogen')) && !m.id.includes('2.0') && !m.id.includes('1.5')).slice(0, 12)
         ];
@@ -550,7 +622,7 @@ export default function App() {
     setMessages(chatHistory); setInputText(''); setAttachments([]); setEditingIndex(null);
     setStreamingText(''); streamAccumRef.current = '';
     setThinkingStatus(''); setIsLoading(true);
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 50);
 
     const isGeminiModel = selectedModel.id.includes('gemini');
     const isClaudeModel = selectedModel.id.includes('claude');
@@ -576,18 +648,29 @@ export default function App() {
       timeoutId = setTimeout(() => controller.abort(), 90000);
     };
 
-    const pushChunk = (chunk) => {
-      if (!chunk) return;
-      streamAccumRef.current += chunk;
+    // THROTTLED UI FLUSH (every 70ms) so mobile Chrome stays 60fps smooth!
+    const pushChunk = (chunk, force = false) => {
+      if (chunk) streamAccumRef.current += chunk;
       const cur = streamAccumRef.current;
       if (cur.startsWith('[[') && cur.length < 60 && !cur.includes('\n')) return;
-      setStreamingText(cur);
+      const nowMs = Date.now();
+      if (force || nowMs - lastUiFlushRef.current > 70) {
+        lastUiFlushRef.current = nowMs;
+        setStreamingText(cur);
+      }
     };
 
     const attemptFetch = async (msgsToSend, useWebPlugin) => {
       streamAccumRef.current = '';
+      lastUiFlushRef.current = 0;
       setStreamingText('');
       resetWatchdog();
+
+      // Trim API payload: keep last 12 turns & strip old images from earlier turns for speed!
+      const recentMsgs = msgsToSend.slice(-12).map((m, idx, arr) => ({
+        ...m,
+        images: idx >= arr.length - 2 ? m.images : []
+      }));
 
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
       let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally. Use emojis naturally 😂✨. If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
@@ -598,10 +681,10 @@ export default function App() {
       if (isGeminiModel && geminiKey.trim()) {
         let gModel = selectedModel.id.replace('google/', '').trim();
         if (!gModel.startsWith('gemini') || gModel.includes('2.0') || gModel.includes('1.5')) {
-          gModel = 'gemini-3.8-flash';
+          gModel = 'gemini-3.5-flash-lite';
         }
 
-        const contents = msgsToSend.map(m => {
+        const contents = recentMsgs.map(m => {
           const parts = [];
           if (m.images?.length) {
             m.images.forEach(uri => {
@@ -632,14 +715,20 @@ export default function App() {
 
         if (canStream && res.body?.getReader) {
           let finishNote = '';
+          let sawThought = false;
           await readSSE(res, (json) => {
             const cand = json.candidates?.[0];
             const parts = cand?.content?.parts || [];
+            if (!sawThought && parts.some(p => p.thought)) {
+              sawThought = true;
+              setThinkingStatus('🧠 Analyzing carefully...');
+            }
             const txt = parts.filter(p => !p.thought).map(p => p.text || '').join('');
             pushChunk(txt);
             if (cand?.finishReason === 'SAFETY') finishNote = '\n\n[⚠️ Cut short by model safety filter]';
             else if (cand?.finishReason === 'MAX_TOKENS') finishNote = '\n\n[⚠️ Reached max output length]';
           }, resetWatchdog);
+          pushChunk('', true);
           return { raw: streamAccumRef.current + finishNote, annotations: [] };
         }
 
@@ -648,7 +737,7 @@ export default function App() {
       }
 
       if (isClaudeModel && anthropicKey.trim()) {
-        const formattedMsgs = msgsToSend.map(m => m.images?.length ? ({
+        const formattedMsgs = recentMsgs.map(m => m.images?.length ? ({
           role: m.role,
           content: [...m.images.map(url => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: url.split(',')[1] } })), { type: 'text', text: m.content }]
         }) : ({ role: m.role, content: m.content }));
@@ -667,13 +756,14 @@ export default function App() {
           await readSSE(res, (json) => {
             if (json.type === 'content_block_delta' && json.delta?.text) pushChunk(json.delta.text);
           }, resetWatchdog);
+          pushChunk('', true);
           return { raw: streamAccumRef.current, annotations: [] };
         }
         const data = await res.json();
         return { raw: data.content?.[0]?.text || '', annotations: [] };
       }
 
-      const openRouterMsgs = msgsToSend.map(m => m.images?.length ? ({
+      const openRouterMsgs = recentMsgs.map(m => m.images?.length ? ({
         role: m.role,
         content: [{ type: 'text', text: m.content }, ...m.images.map(url => ({ type: 'image_url', image_url: { url } }))]
       }) : ({ role: m.role, content: m.content }));
@@ -694,12 +784,15 @@ export default function App() {
       }
       if (canStream && res.body?.getReader) {
         const collectedAnn = [];
+        let sawReasoning = false;
         await readSSE(res, (json) => {
           const delta = json.choices?.[0]?.delta;
+          if (!sawReasoning && delta?.reasoning) { sawReasoning = true; setThinkingStatus('🧠 Reasoning through your code...'); }
           if (delta?.content) pushChunk(delta.content);
           const ann = delta?.annotations || json.choices?.[0]?.message?.annotations;
           if (Array.isArray(ann)) collectedAnn.push(...ann);
         }, resetWatchdog);
+        pushChunk('', true);
         return { raw: streamAccumRef.current, annotations: collectedAnn };
       }
       const data = await res.json().catch(() => ({}));
@@ -790,70 +883,6 @@ export default function App() {
     setPreviewFile({ filename, content, isWeb });
   };
 
-  const renderMessageContent = (item) => {
-    if (item.role === 'user') {
-      return (
-        <View style={{ width: '100%' }}>
-          {item.images?.length > 0 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-              {item.images.map((uri, idx) => <Image key={idx} source={{ uri }} style={styles.msgImageThumb} />)}
-            </ScrollView>
-          )}
-          <Text style={styles.userMsgText}>{item.content}</Text>
-        </View>
-      );
-    }
-
-    const mentionedFile = (item.content || '').match(/`?([a-z0-9_-]+\.(?:html?|lua|py|js|jsx|ts|css|json|txt|md|sql|sh))`?/i)?.[1];
-    const parts = (item.content || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
-    return (
-      <View style={{ width: '100%' }}>
-        {parts.map((part, index) => {
-          if (part.startsWith('[[[FILE:')) {
-            const m = part.match(/^\[\[\[FILE:(.*?)\]\]\]([\s\S]*?)\[\[\[\/FILE\]\]\]$/);
-            if (m) {
-              const fname = m[1].trim() || mentionedFile || 'file.txt';
-              let fcode = m[2].trim();
-              if (fcode.startsWith('```')) {
-                const nl = fcode.indexOf('\n');
-                fcode = (nl !== -1 ? fcode.slice(nl + 1) : fcode.slice(3)).replace(/```$/, '').trim();
-              }
-              return <FileCard key={index} filename={fname} content={fcode} onPreview={() => openFilePreview(fname, fcode)} />;
-            }
-          }
-          if (part.startsWith('```') && part.endsWith('```')) {
-            const firstBreak = part.indexOf('\n');
-            let lang = 'txt', rawFile = null, code = '';
-            if (firstBreak !== -1) {
-              const [rawLang, parsedFile] = part.slice(3, firstBreak).trim().split(':');
-              lang = (rawLang || 'txt').trim().toLowerCase();
-              rawFile = parsedFile ? parsedFile.trim() : null;
-              code = part.slice(firstBreak + 1, -3).trim();
-            } else { code = part.slice(3, -3).trim(); }
-            const filename = rawFile || mentionedFile || `tessarc-file.${EXT_MAP[lang] || 'txt'}`;
-            if (item.asFile || rawFile) {
-              return <FileCard key={index} filename={filename} content={code} onPreview={() => openFilePreview(filename, code)} />;
-            }
-            return <CodeBlock key={index} code={code} filename={filename} language={lang} />;
-          }
-          return part.trim() ? <View key={index}>{renderRichText(part)}</View> : null;
-        })}
-        {item.sources?.length > 0 && (
-          <View style={styles.sourcesWrap}>
-            <Text style={styles.sourcesLabel}>VISITED SOURCES</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {item.sources.map((s, idx) => (
-                <TouchableOpacity key={idx} style={styles.sourcePill} onPress={() => Linking.openURL(s.url)} activeOpacity={0.7}>
-                  <Text style={styles.sourcePillText} numberOfLines={1}>🌐 {s.domain} ↗</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-      </View>
-    );
-  };
-
   if (currentScreen === 'settings') {
     return (
       <SafeAreaView style={styles.container}>
@@ -938,7 +967,6 @@ export default function App() {
         </View>
       </View>
 
-      {/* PRIVACY & SUPPORTED FORMATS INFO MODAL */}
       <Modal visible={showInfoModal} transparent animationType="fade" onRequestClose={() => setShowInfoModal(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.noticeCard}>
@@ -1111,24 +1139,24 @@ export default function App() {
             messages.length === 0 && !isLoading && { flexGrow: 1, justifyContent: 'center' }
           ]}
           onContentSizeChange={() => {
-            if (messages.length > 0 || isLoading || streamingText) scrollRef.current?.scrollToEnd({ animated: true });
+            if (!isLoading && messages.length > 0) scrollRef.current?.scrollToEnd({ animated: false });
           }}
           keyboardShouldPersistTaps="handled"
         >
           {messages.length === 0 && !isLoading ? (
             <EmptyHero onSelectPrompt={handleSelectStarter} onOpenSettings={() => setCurrentScreen('settings')} onOpenInfo={() => setShowInfoModal(true)} hasKey={hasAnyKey} />
           ) : (
-            messages.map((item, index) => {
-              const isUser = item.role === 'user';
-              return (
-                <AnimatedBubble key={`${activeChatId || 'new'}-${index}`} style={isUser ? styles.userMsgWrap : styles.aiMsg}>
-                  <View style={isUser ? [styles.userMsg, editingIndex === index && styles.editingBubble] : null}>{renderMessageContent(item)}</View>
-                  {isUser && !isLoading && (
-                    <TouchableOpacity onPress={() => startEdit(index)} style={styles.editTrigger}><Text style={styles.editTriggerText}>✎ Edit</Text></TouchableOpacity>
-                  )}
-                </AnimatedBubble>
-              );
-            })
+            messages.map((item, index) => (
+              <MessageItem
+                key={`${activeChatId || 'new'}-${index}`}
+                item={item}
+                index={index}
+                isEditing={editingIndex === index}
+                showEditBtn={!isLoading}
+                onStartEdit={startEdit}
+                onOpenPreview={openFilePreview}
+              />
+            ))
           )}
           {isLoading && (streamingText ? (
             <View style={styles.aiMsg}>
@@ -1297,6 +1325,8 @@ const styles = StyleSheet.create({
   userMsgWrap: { alignSelf: 'flex-end', alignItems: 'flex-end', marginVertical: 8, maxWidth: '88%', width: '88%' },
   userMsg: { backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, borderWidth: 1, borderColor: '#222', maxWidth: '100%', overflow: 'hidden' },
   userMsgText: { color: '#FFF', fontSize: 15, lineHeight: 23, flexShrink: 1, ...(Platform.OS === 'web' ? { overflowWrap: 'anywhere', wordBreak: 'break-word' } : {}) },
+  expandBtn: { marginTop: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#2A2A32' },
+  expandBtnText: { color: '#7BB1F5', fontSize: 12, fontWeight: '700' },
   editingBubble: { borderColor: '#4A90E2', backgroundColor: '#162030' },
   editTrigger: { paddingTop: 5, paddingHorizontal: 6 },
   editTriggerText: { color: '#666', fontSize: 12, fontWeight: '600' },
