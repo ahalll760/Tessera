@@ -58,25 +58,6 @@ const STARTER_PROMPTS = [
 const EXT_MAP = { javascript: 'js', js: 'js', jsx: 'jsx', ts: 'ts', python: 'py', py: 'py', lua: 'lua', html: 'html', css: 'css', json: 'json', csv: 'csv', sql: 'sql', sh: 'sh', md: 'md', txt: 'txt' };
 const WMO = { 0:'Clear sky', 1:'Mainly clear', 2:'Partly cloudy', 3:'Overcast', 45:'Foggy', 48:'Foggy', 51:'Light drizzle', 53:'Drizzle', 61:'Light rain', 63:'Rain', 65:'Heavy rain', 71:'Light snow', 73:'Snow', 80:'Rain showers', 95:'Thunderstorm' };
 
-// --- LIVE LINK READER (Renders JS pages & returns clean Markdown for ANY model!) ---
-const fetchUrlContent = async (rawUrl) => {
-  const cleanUrl = rawUrl.replace(/[),.;]+$/, '');
-  let domain = cleanUrl;
-  try { domain = new URL(cleanUrl).hostname.replace(/^www\./, ''); } catch {}
-  try {
-    const res = await fetch(`https://r.jina.ai/${cleanUrl}`);
-    if (!res.ok) return { url: cleanUrl, domain, text: null };
-    const txt = await res.text();
-    return {
-      url: cleanUrl,
-      domain,
-      text: txt && txt.trim().length > 15 ? txt.trim().slice(0, 6500) : null
-    };
-  } catch {
-    return { url: cleanUrl, domain, text: null };
-  }
-};
-
 const fetchLiveWeather = async (rawCity) => {
   try {
     const clean = rawCity.split(',')[0].trim();
@@ -213,6 +194,20 @@ const processVideo = (file) => new Promise((resolve, reject) => {
   video.src = url; video.load();
 });
 
+const fetchUrlContent = async (rawUrl) => {
+  const cleanUrl = rawUrl.replace(/[),.;]+$/, '');
+  let domain = cleanUrl;
+  try { domain = new URL(cleanUrl).hostname.replace(/^www\./, ''); } catch {}
+  try {
+    const res = await fetch(`https://r.jina.ai/${cleanUrl}`);
+    if (!res.ok) return { url: cleanUrl, domain, text: null };
+    const txt = await res.text();
+    return { url: cleanUrl, domain, text: txt && txt.trim().length > 15 ? txt.trim().slice(0, 6500) : null };
+  } catch {
+    return { url: cleanUrl, domain, text: null };
+  }
+};
+
 const readSSE = async (res, onEvent, onPulse) => {
   const reader = res.body.getReader();
   const decoder = new TextDecoder('utf-8');
@@ -239,7 +234,7 @@ const readSSE = async (res, onEvent, onPulse) => {
   if (buffer.trim()) processLines(buffer.split(/\r?\n/));
 };
 
-const EmptyHero = ({ onSelectPrompt, onOpenSettings, onOpenInfo, hasKey }) => {
+const EmptyHero = ({ onSelectPrompt, onOpenSettings, onOpenInfo, hasKey, demoCredits }) => {
   const pulse = useRef(new Animated.Value(0.65)).current;
   const scale = useRef(new Animated.Value(1)).current;
   const fadeUp = useRef(new Animated.Value(0)).current;
@@ -262,9 +257,12 @@ const EmptyHero = ({ onSelectPrompt, onOpenSettings, onOpenInfo, hasKey }) => {
         <Text style={styles.trustSub}>Keys stay strictly in your browser (localStorage) — zero server tracking</Text>
       </View>
       {!hasKey && (
-        <TouchableOpacity style={styles.heroPrimaryCta} onPress={onOpenSettings} activeOpacity={0.85}>
-          <Text style={styles.heroPrimaryCtaText}>Connect Free API Key →</Text>
-        </TouchableOpacity>
+        <View style={styles.demoBannerWrap}>
+          <View style={styles.demoPill}><Text style={styles.demoPillText}>⚡ Free Demo: {demoCredits} messages left</Text></View>
+          <TouchableOpacity style={styles.heroSecondaryCta} onPress={onOpenSettings} activeOpacity={0.85}>
+            <Text style={styles.heroSecondaryCtaText}>Or connect your own key →</Text>
+          </TouchableOpacity>
+        </View>
       )}
       <View style={styles.starterGrid}>
         {STARTER_PROMPTS.map((item, idx) => (
@@ -447,6 +445,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState('');
   const [geminiKey, setGeminiKey] = useState(''); 
   const [anthropicKey, setAnthropicKey] = useState(''); 
+  const [demoCredits, setDemoCredits] = useState(5); // 5 free demo messages for any visitor!
   const [userContext, setUserContext] = useState('');
   const [savedChats, setSavedChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
@@ -465,8 +464,6 @@ export default function App() {
 
   const [attachments, setAttachments] = useState([]);
   const [mediaNotice, setMediaNotice] = useState('');
-  const [showNoticeModal, setShowNoticeModal] = useState(false);
-  const [dontShowAgain, setDontShowAgain] = useState(false);
 
   const scrollRef = useRef(null);
   const abortRef = useRef(null);
@@ -493,9 +490,9 @@ export default function App() {
         if (storedChats) setSavedChats(JSON.parse(storedChats));
         const storedContext = await AsyncStorage.getItem('@council_context_v1');
         if (storedContext) setUserContext(storedContext);
-        const hideNotice = await AsyncStorage.getItem('@council_hide_api_notice');
-        if (hideNotice === 'true') setDontShowAgain(true);
-        else if (!storedKey && !storedGemini && !storedAnthropic) setShowNoticeModal(true);
+
+        const storedCredits = await AsyncStorage.getItem('@tessarc_demo_credits_v1');
+        if (storedCredits !== null) setDemoCredits(Number(storedCredits));
       } catch (err) {}
     })();
 
@@ -537,7 +534,7 @@ export default function App() {
   const handleGeminiKeyChange = async (key) => { setGeminiKey(key); try { await AsyncStorage.setItem('@council_gemini_key_v1', key.trim()); } catch (e) {} };
   const handleAnthropicKeyChange = async (key) => { setAnthropicKey(key); try { await AsyncStorage.setItem('@council_anthropic_key_v1', key.trim()); } catch (e) {} };
   const handleContextChange = async (text) => { setUserContext(text); try { await AsyncStorage.setItem('@council_context_v1', text); } catch (e) {} };
-  const toggleDontShowAgain = async () => { const v = !dontShowAgain; setDontShowAgain(v); try { await AsyncStorage.setItem('@council_hide_api_notice', v ? 'true' : 'false'); } catch (e) {} };
+  
   const syncChatsWithStorage = async (list) => {
     setSavedChats(list);
     try { await AsyncStorage.setItem('@council_chats_v1', JSON.stringify(list)); } catch (e) {
@@ -641,18 +638,27 @@ export default function App() {
 
     const isGeminiModel = selectedModel.id.includes('gemini');
     const isClaudeModel = selectedModel.id.includes('claude');
+    const hasAnyKey = Boolean(apiKey.trim() || geminiKey.trim() || anthropicKey.trim());
 
-    if (isGeminiModel && !geminiKey.trim() && !apiKey.trim()) {
-      setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Add your free Google Gemini key (starts with AQ.) in Settings!' }]);
+    // ZERO-KEY DEMO MODE: If user has no keys, check demo credits!
+    const isDemoMode = !hasAnyKey;
+    if (isDemoMode && demoCredits <= 0) {
+      setMessages([...chatHistory, { 
+        role: 'assistant', 
+        content: "⚡ You've used all 5 free demo messages! Tap 'Connect Free API Key' or go to Settings (☰ > ⚙ Settings) to add your own free Google Gemini key for unlimited chats." 
+      }]);
       return setIsLoading(false);
     }
-    if (isClaudeModel && !anthropicKey.trim() && !apiKey.trim()) {
-      setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Claude requires an Anthropic Key [PAID] or OpenRouter Key in Settings.' }]);
-      return setIsLoading(false);
-    }
-    if (!isGeminiModel && !isClaudeModel && !apiKey.trim()) {
-      setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Please add your OpenRouter API key in Settings (☰ > ⚙ Settings).' }]);
-      return setIsLoading(false);
+
+    if (!isDemoMode) {
+      if (isGeminiModel && !geminiKey.trim() && !apiKey.trim()) {
+        setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Add your free Google Gemini key in Settings (☰ > ⚙ Settings)!' }]);
+        return setIsLoading(false);
+      }
+      if (isClaudeModel && !anthropicKey.trim() && !apiKey.trim()) {
+        setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Claude requires an Anthropic Key [PAID] or OpenRouter Key in Settings.' }]);
+        return setIsLoading(false);
+      }
     }
 
     const controller = new AbortController();
@@ -674,7 +680,6 @@ export default function App() {
       }
     };
 
-    // AUTO-DETECT & FETCH LIVE URLs PASTED BY USER (Works on EVERY model!)
     let urlSources = [];
     let urlContextText = '';
     const urlsInMsg = [...new Set((userText.match(/https?:\/\/[^\s<>"']+/gi) || []).slice(0, 2))];
@@ -704,7 +709,6 @@ export default function App() {
         images: idx >= arr.length - 2 ? m.images : []
       }));
 
-      // Attach fetched webpage text only to the final prompt sent to API (keeps saved chat clean!)
       if (urlContextText && recentMsgs.length > 0) {
         const last = recentMsgs[recentMsgs.length - 1];
         recentMsgs[recentMsgs.length - 1] = {
@@ -713,13 +717,33 @@ export default function App() {
         };
       }
 
+      // ROUTE 0: ZERO-KEY FREE DEMO (Calls our secure /api/demo serverless function!)
+      if (isDemoMode) {
+        setThinkingStatus('⚡ Running Free Demo...');
+        const res = await fetch('/api/demo', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: recentMsgs })
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data?.error || 'Demo service unavailable. Add your own key in Settings!');
+        
+        // Deduct 1 demo credit
+        const newCredits = Math.max(0, demoCredits - 1);
+        setDemoCredits(newCredits);
+        AsyncStorage.setItem('@tessarc_demo_credits_v1', String(newCredits)).catch(() => {});
+        
+        return { raw: data.text || '', annotations: [] };
+      }
+
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
-      let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally. Use emojis naturally 😂✨. If [LIVE WEBPAGE CONTENT] is included, you HAVE visited and read that URL—answer directly from its contents and NEVER claim you cannot browse links! If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know (and no webpage/search data is already provided), reply ONLY with [[SEARCH:query]].`;
+      let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally. Use emojis naturally 😂✨. If [LIVE WEBPAGE CONTENT] is included, you HAVE visited and read that URL—answer directly from its contents and NEVER claim you cannot browse links! If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       const canStream = Platform.OS === 'web' && typeof ReadableStream !== 'undefined';
 
-      // ROUTE 1: NATIVE GOOGLE AI STUDIO (WITH GOOGLE SEARCH TOOL WHEN 🌐 IS ON!)
+      // ROUTE 1: NATIVE GOOGLE AI STUDIO
       if (isGeminiModel && geminiKey.trim()) {
         let gModel = selectedModel.id.replace('google/', '').trim();
         if (!gModel.startsWith('gemini') || gModel.includes('2.0') || gModel.includes('1.5')) {
@@ -790,6 +814,7 @@ export default function App() {
         };
       }
 
+      // ROUTE 2: DIRECT ANTHROPIC (CLAUDE - PAID)
       if (isClaudeModel && anthropicKey.trim()) {
         const formattedMsgs = recentMsgs.map(m => m.images?.length ? ({
           role: m.role,
@@ -817,6 +842,7 @@ export default function App() {
         return { raw: data.content?.[0]?.text || '', annotations: [] };
       }
 
+      // ROUTE 3: OPENROUTER (STREAMING)
       const openRouterMsgs = recentMsgs.map(m => m.images?.length ? ({
         role: m.role,
         content: [{ type: 'text', text: m.content }, ...m.images.map(url => ({ type: 'image_url', image_url: { url } }))]
@@ -858,7 +884,6 @@ export default function App() {
       try {
         result = await attemptFetch(chatHistory, webSearchOn);
       } catch (webErr) {
-        // If web plugin / google_search isn't supported or lacks credits, retry gracefully without tool!
         if (webErr.name !== 'AbortError' && webSearchOn && (webErr.message.includes('402') || webErr.message.includes('400') || webErr.message.toLowerCase().includes('credit') || webErr.message.toLowerCase().includes('tool'))) {
           setThinkingStatus('🌐 Switching to free web lookup...');
           result = await attemptFetch(chatHistory, false);
@@ -936,6 +961,70 @@ export default function App() {
     setPreviewTab(isWeb && Platform.OS === 'web' ? 'run' : 'code');
     setPreviewCopied(false);
     setPreviewFile({ filename, content, isWeb });
+  };
+
+  const renderMessageContent = (item) => {
+    if (item.role === 'user') {
+      return (
+        <View style={{ width: '100%' }}>
+          {item.images?.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+              {item.images.map((uri, idx) => <Image key={idx} source={{ uri }} style={styles.msgImageThumb} />)}
+            </ScrollView>
+          )}
+          <Text style={styles.userMsgText}>{item.content}</Text>
+        </View>
+      );
+    }
+
+    const mentionedFile = (item.content || '').match(/`?([a-z0-9_-]+\.(?:html?|lua|py|js|jsx|ts|css|json|csv|txt|md|sql|sh))`?/i)?.[1];
+    const parts = (item.content || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
+    return (
+      <View style={{ width: '100%' }}>
+        {parts.map((part, index) => {
+          if (part.startsWith('[[[FILE:')) {
+            const m = part.match(/^\[\[\[FILE:(.*?)\]\]\]([\s\S]*?)\[\[\[\/FILE\]\]\]$/);
+            if (m) {
+              const fname = m[1].trim() || mentionedFile || 'file.txt';
+              let fcode = m[2].trim();
+              if (fcode.startsWith('```')) {
+                const nl = fcode.indexOf('\n');
+                fcode = (nl !== -1 ? fcode.slice(nl + 1) : fcode.slice(3)).replace(/```$/, '').trim();
+              }
+              return <FileCard key={index} filename={fname} content={fcode} onPreview={() => openFilePreview(fname, fcode)} />;
+            }
+          }
+          if (part.startsWith('```') && part.endsWith('```')) {
+            const firstBreak = part.indexOf('\n');
+            let lang = 'txt', rawFile = null, code = '';
+            if (firstBreak !== -1) {
+              const [rawLang, parsedFile] = part.slice(3, firstBreak).trim().split(':');
+              lang = (rawLang || 'txt').trim().toLowerCase();
+              rawFile = parsedFile ? parsedFile.trim() : null;
+              code = part.slice(firstBreak + 1, -3).trim();
+            } else { code = part.slice(3, -3).trim(); }
+            const filename = rawFile || mentionedFile || `tessarc-file.${EXT_MAP[lang] || 'txt'}`;
+            if (item.asFile || rawFile) {
+              return <FileCard key={index} filename={filename} content={code} onPreview={() => openFilePreview(filename, code)} />;
+            }
+            return <CodeBlock key={index} code={code} filename={filename} language={lang} />;
+          }
+          return part.trim() ? <View key={index}>{renderRichText(part)}</View> : null;
+        })}
+        {item.sources?.length > 0 && (
+          <View style={styles.sourcesWrap}>
+            <Text style={styles.sourcesLabel}>VISITED SOURCES</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {item.sources.map((s, idx) => (
+                <TouchableOpacity key={idx} style={styles.sourcePill} onPress={() => Linking.openURL(s.url)} activeOpacity={0.7}>
+                  <Text style={styles.sourcePillText} numberOfLines={1}>🌐 {s.domain} ↗</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+      </View>
+    );
   };
 
   if (currentScreen === 'settings') {
@@ -1092,22 +1181,6 @@ export default function App() {
         </SafeAreaView>
       </Modal>
 
-      <Modal visible={showNoticeModal && !hasAnyKey && !dontShowAgain} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.noticeCard}>
-            <Text style={styles.noticeHeader}>🔑 Setup Required</Text>
-            <Text style={styles.noticeBody}>To chat with models, add a free Google Gemini key or OpenRouter key in Settings. Your keys stay locally in your browser.</Text>
-            <TouchableOpacity style={styles.noticeBtnPrimary} onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}><Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL('https://aistudio.google.com/apikey')}><Text style={styles.noticeBtnSecondaryText}>Get Free Google Gemini Key ↗</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.checkboxContainer} onPress={toggleDontShowAgain}>
-              <View style={[styles.checkboxBox, dontShowAgain && styles.checkboxChecked]}>{dontShowAgain && <Text style={styles.checkboxCheck}>✓</Text>}</View>
-              <Text style={styles.checkboxLabel}>Don't show this again</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.noticeDismiss} onPress={() => setShowNoticeModal(false)}><Text style={styles.noticeDismissText}>Dismiss</Text></TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
       <Modal visible={showModels} transparent animationType="none" onRequestClose={closeModelSheet}>
         <Animated.View style={[styles.sheetBackdrop, { opacity: sheetFade }]}>
           <Pressable style={{ flex: 1 }} onPress={closeModelSheet} />
@@ -1199,7 +1272,7 @@ export default function App() {
           keyboardShouldPersistTaps="handled"
         >
           {messages.length === 0 && !isLoading ? (
-            <EmptyHero onSelectPrompt={handleSelectStarter} onOpenSettings={() => setCurrentScreen('settings')} onOpenInfo={() => setShowInfoModal(true)} hasKey={hasAnyKey} />
+            <EmptyHero onSelectPrompt={handleSelectStarter} onOpenSettings={() => setCurrentScreen('settings')} onOpenInfo={() => setShowInfoModal(true)} hasKey={hasAnyKey} demoCredits={demoCredits} />
           ) : (
             messages.map((item, index) => (
               <MessageItem
@@ -1249,7 +1322,7 @@ export default function App() {
             <TouchableOpacity style={[styles.attachBtn, webSearchOn && styles.webBtnActive]} onPress={() => setWebSearchOn(!webSearchOn)}>
               <Text style={styles.attachTxt}>🌐</Text>
             </TouchableOpacity>
-            <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : "Ask Tessarc anything..."} placeholderTextColor="#999" />
+            <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : (hasAnyKey ? "Ask Tessarc anything..." : `Demo Mode (${demoCredits} left) • Ask anything...`)} placeholderTextColor="#999" />
             {isLoading ? (
               <TouchableOpacity style={[styles.sendBtn, { backgroundColor: '#EF4444' }]} onPress={stopGeneration}>
                 <Text style={[styles.sendTxt, { color: '#FFF', fontSize: 16 }]}>■</Text>
@@ -1348,24 +1421,20 @@ const styles = StyleSheet.create({
   noticeBtnPrimaryText: { color: '#000', fontSize: 15, fontWeight: '700' },
   noticeBtnSecondary: { backgroundColor: '#202024', paddingVertical: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 14 },
   noticeBtnSecondaryText: { color: '#4ADE80', fontSize: 14, fontWeight: '700' },
-  checkboxContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  checkboxBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#555', marginRight: 10, justifyContent: 'center', alignItems: 'center' },
-  checkboxChecked: { backgroundColor: '#4A90E2', borderColor: '#4A90E2' },
-  checkboxCheck: { color: '#FFF', fontSize: 13, fontWeight: '800' },
-  checkboxLabel: { color: '#888', fontSize: 13 },
-  noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
-  noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
   chatScrollContent: { padding: 20, paddingBottom: 30 },
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 20 },
   heroOrb: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#14141A', borderWidth: 1, borderColor: '#343440', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
   emptyLogo: { fontSize: 30, color: '#FFF' },
   heroBrand: { color: '#FFF', fontSize: 34, fontWeight: '900', letterSpacing: -1, marginBottom: 6 },
   emptyChatText: { color: '#CCC', fontSize: 16, fontWeight: '500', marginBottom: 14, textAlign: 'center' },
-  trustStrip: { alignItems: 'center', backgroundColor: '#0E0E12', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: '#22222A', marginBottom: 18 },
+  trustStrip: { alignItems: 'center', backgroundColor: '#0E0E12', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: '#22222A', marginBottom: 14 },
   trustText: { color: '#9CC2F7', fontSize: 12, fontWeight: '700', letterSpacing: 0.3, textAlign: 'center', marginBottom: 3 },
   trustSub: { color: '#777784', fontSize: 11, fontWeight: '500', textAlign: 'center' },
-  heroPrimaryCta: { backgroundColor: '#FFF', paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, marginBottom: 20 },
-  heroPrimaryCtaText: { color: '#000', fontSize: 14, fontWeight: '800' },
+  demoBannerWrap: { alignItems: 'center', marginBottom: 18 },
+  demoPill: { backgroundColor: '#112E1D', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#1E4D31', marginBottom: 8 },
+  demoPillText: { color: '#4ADE80', fontSize: 13, fontWeight: '800' },
+  heroSecondaryCta: { paddingVertical: 4 },
+  heroSecondaryCtaText: { color: '#60A5FA', fontSize: 13, fontWeight: '600' },
   starterGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, width: '100%', maxWidth: 560 },
   starterCard: { backgroundColor: '#16161C', padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#30303C', width: '47%', minWidth: 150 },
   starterIcon: { color: '#4A90E2', fontSize: 15, fontWeight: '800', marginBottom: 6 },
