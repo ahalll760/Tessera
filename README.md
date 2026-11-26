@@ -1,11 +1,22 @@
-# Sample Snack app
+# ✧ Tessarc
 
-Open the `App.js` file to start writing some code. You can preview the changes directly on your phone or tablet by scanning the **QR code** or use the iOS or Android emulators. When you're done, click **Save** and share the link!
+**One workspace for every frontier AI.**  
+A fast, local-first multi-model AI client built for mobile and web.
 
-When you're ready to see everything that Expo provides (or if you want to use your own editor) you can **Download** your project and use it with [expo cli](https://docs.expo.dev/get-started/installation/#expo-cli)).
+🔗 **Live App:** [tessarc.vercel.app](https://tessarc.vercel.app/)
 
-All projects created in Snack are publicly available, so you can easily share the link to this project via link, or embed it on a web page with the `<>` button.
+## ✨ Features
+- **Multi-Provider Routing:** Connect directly to **Google Gemini** (`500 free/day` on Flash-Lite), **Anthropic Claude**, or **OpenRouter** (GPT-4 modal already covers that cleanly.
+* **Encrypted backup / analytics:** Good *later*, unnecessary right now.
 
-If you're having problems, you can tweet to us [@expo](https://twitter.com/expo) or ask in our [forums](https://forums.expo.dev/c/expo-dev-tools/61) or [Discord](https://chat.expo.dev/).
+### ✅ The 3 Real P0 Fixes Worth Doing (In Order):
 
-Snack is Open Source. You can find the code on the [GitHub repo](https://github.com/expo/snack).
+1. **Fix the "Abandoned Repo" & Missing Tab Icon (`favicono, DeepSeek R1, Llama 3.3, Qwen).
+- **100% Local-First Privacy:** API keys and chat history stay strictly in your browser's `localStorage`—zero middleman servers.
+- **Direct File Export & Live Runner:** Export `.html`, `.csv`, `.py`, `.lua`, `.js`, and `.md` files—` + `README.md` + `vercel.json`):**
+   * **Spot on:** Right now your GitHub `READMEplus run HTML apps live inside Tessarc.
+- **Live Web & Vision:** Paste any URL to read live pages.md` still says *"Sample Snack app — scan the QR code"*, `favicon.ico` 404s (, toggle `🌐` for live web search with clickable sources, or attach images and up to 70s videos.no tab icon!), and the 572KB JS bundle re-downloads on every visit instead of caching!
+   * Fixing those 3 tiny files makes Tessarc look 10× more legitimate and load **instantly** on repeat mobile
+
+## 📄 License
+MIT
