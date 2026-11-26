@@ -1,0 +1,24 @@
+{
+  "name": "Tessarc — Multi-Model AI Workspace",
+  "short_name": "Tessarc",
+  "description": "One private, local-first AI workspace for Google Gemini, Claude, OpenAI, and DeepSeek.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "typejs` file, giving every visitor **5 real free demo messages** right on arrival before asking for their own key!
+
+3. **Upload a Real Screenshot as `og:image` + Rename GitHub Repo (`Tessera` → `Tessarc`):**
+   * Lets Discord, X/Twitter, and WhatsApp show an actual preview picture of Tessarc when anyone shares your link!
+
+---
+
+Let’s knock these out **one clean step at a time** so nothing gets messy.": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
