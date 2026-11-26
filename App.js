@@ -58,6 +58,25 @@ const STARTER_PROMPTS = [
 const EXT_MAP = { javascript: 'js', js: 'js', jsx: 'jsx', ts: 'ts', python: 'py', py: 'py', lua: 'lua', html: 'html', css: 'css', json: 'json', csv: 'csv', sql: 'sql', sh: 'sh', md: 'md', txt: 'txt' };
 const WMO = { 0:'Clear sky', 1:'Mainly clear', 2:'Partly cloudy', 3:'Overcast', 45:'Foggy', 48:'Foggy', 51:'Light drizzle', 53:'Drizzle', 61:'Light rain', 63:'Rain', 65:'Heavy rain', 71:'Light snow', 73:'Snow', 80:'Rain showers', 95:'Thunderstorm' };
 
+// --- LIVE LINK READER (Renders JS pages & returns clean Markdown for ANY model!) ---
+const fetchUrlContent = async (rawUrl) => {
+  const cleanUrl = rawUrl.replace(/[),.;]+$/, '');
+  let domain = cleanUrl;
+  try { domain = new URL(cleanUrl).hostname.replace(/^www\./, ''); } catch {}
+  try {
+    const res = await fetch(`https://r.jina.ai/${cleanUrl}`);
+    if (!res.ok) return { url: cleanUrl, domain, text: null };
+    const txt = await res.text();
+    return {
+      url: cleanUrl,
+      domain,
+      text: txt && txt.trim().length > 15 ? txt.trim().slice(0, 6500) : null
+    };
+  } catch {
+    return { url: cleanUrl, domain, text: null };
+  }
+};
+
 const fetchLiveWeather = async (rawCity) => {
   try {
     const clean = rawCity.split(',')[0].trim();
@@ -97,7 +116,10 @@ const cleanLinksAndExtractSources = (rawText, annotations = [], extraSources = [
       sources.push({ url: cleanUrl, domain, title: title || domain });
     }
   };
-  (annotations || []).forEach(a => { if (a?.url_citation?.url) addSource(a.url_citation.url, a.url_citation.title); });
+  (annotations || []).forEach(a => {
+    if (a?.url_citation?.url) addSource(a.url_citation.url, a.url_citation.title);
+    else if (a?.url) addSource(a.url, a.title);
+  });
 
   const isDomainOrNum = (lbl) => /^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(lbl.trim()) || /^\d+$/.test(lbl.trim());
   const parts = (rawText || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
@@ -331,7 +353,6 @@ const CodeBlock = ({ code, filename, language }) => {
   );
 };
 
-// --- MEMOIZED MESSAGE ITEM: Prevents giant code bubbles from lagging while streaming/typing! ---
 const MessageItem = memo(({ item, index, isEditing, showEditBtn, onStartEdit, onOpenPreview }) => {
   const [expanded, setExpanded] = useState(false);
   const isUser = item.role === 'user';
@@ -348,21 +369,15 @@ const MessageItem = memo(({ item, index, isEditing, showEditBtn, onStartEdit, on
               {item.images.map((uri, idx) => <Image key={idx} source={{ uri }} style={styles.msgImageThumb} />)}
             </ScrollView>
           )}
-          <Text style={styles.userMsgText} numberOfLines={isLong && !expanded ? 8 : undefined}>
-            {raw}
-          </Text>
+          <Text style={styles.userMsgText} numberOfLines={isLong && !expanded ? 8 : undefined}>{raw}</Text>
           {isLong && (
             <TouchableOpacity onPress={() => setExpanded(!expanded)} style={styles.expandBtn}>
-              <Text style={styles.expandBtnText}>
-                {expanded ? 'Collapse ▲' : `Show all (${lineCount} lines) ▾`}
-              </Text>
+              <Text style={styles.expandBtnText}>{expanded ? 'Collapse ▲' : `Show all (${lineCount} lines) ▾`}</Text>
             </TouchableOpacity>
           )}
         </View>
         {showEditBtn && (
-          <TouchableOpacity onPress={() => onStartEdit(index)} style={styles.editTrigger}>
-            <Text style={styles.editTriggerText}>✎ Edit</Text>
-          </TouchableOpacity>
+          <TouchableOpacity onPress={() => onStartEdit(index)} style={styles.editTrigger}><Text style={styles.editTriggerText}>✎ Edit</Text></TouchableOpacity>
         )}
       </View>
     );
@@ -648,7 +663,6 @@ export default function App() {
       timeoutId = setTimeout(() => controller.abort(), 90000);
     };
 
-    // THROTTLED UI FLUSH (every 70ms) so mobile Chrome stays 60fps smooth!
     const pushChunk = (chunk, force = false) => {
       if (chunk) streamAccumRef.current += chunk;
       const cur = streamAccumRef.current;
@@ -660,24 +674,52 @@ export default function App() {
       }
     };
 
+    // AUTO-DETECT & FETCH LIVE URLs PASTED BY USER (Works on EVERY model!)
+    let urlSources = [];
+    let urlContextText = '';
+    const urlsInMsg = [...new Set((userText.match(/https?:\/\/[^\s<>"']+/gi) || []).slice(0, 2))];
+    if (urlsInMsg.length > 0 && !userText.includes('import React')) {
+      try {
+        let firstDomain = 'link';
+        try { firstDomain = new URL(urlsInMsg[0]).hostname.replace(/^www\./, ''); } catch {}
+        setThinkingStatus(`🌐 Visiting ${firstDomain}...`);
+        const pages = await Promise.all(urlsInMsg.map(fetchUrlContent));
+        const loaded = pages.filter(p => p.text);
+        if (loaded.length > 0) {
+          urlSources = loaded.map(p => ({ url: p.url, domain: p.domain, title: p.domain }));
+          urlContextText = loaded.map(p => `[LIVE WEBPAGE CONTENT FROM ${p.url}]\n${p.text}\n[END WEBPAGE]`).join('\n\n');
+          setThinkingStatus('✧ Reading webpage...');
+        }
+      } catch {}
+    }
+
     const attemptFetch = async (msgsToSend, useWebPlugin) => {
       streamAccumRef.current = '';
       lastUiFlushRef.current = 0;
       setStreamingText('');
       resetWatchdog();
 
-      // Trim API payload: keep last 12 turns & strip old images from earlier turns for speed!
       const recentMsgs = msgsToSend.slice(-12).map((m, idx, arr) => ({
         ...m,
         images: idx >= arr.length - 2 ? m.images : []
       }));
 
+      // Attach fetched webpage text only to the final prompt sent to API (keeps saved chat clean!)
+      if (urlContextText && recentMsgs.length > 0) {
+        const last = recentMsgs[recentMsgs.length - 1];
+        recentMsgs[recentMsgs.length - 1] = {
+          ...last,
+          content: `${last.content}\n\n${urlContextText}`
+        };
+      }
+
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
-      let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally. Use emojis naturally 😂✨. If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
+      let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally. Use emojis naturally 😂✨. If [LIVE WEBPAGE CONTENT] is included, you HAVE visited and read that URL—answer directly from its contents and NEVER claim you cannot browse links! If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know (and no webpage/search data is already provided), reply ONLY with [[SEARCH:query]].`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       const canStream = Platform.OS === 'web' && typeof ReadableStream !== 'undefined';
 
+      // ROUTE 1: NATIVE GOOGLE AI STUDIO (WITH GOOGLE SEARCH TOOL WHEN 🌐 IS ON!)
       if (isGeminiModel && geminiKey.trim()) {
         let gModel = selectedModel.id.replace('google/', '').trim();
         if (!gModel.startsWith('gemini') || gModel.includes('2.0') || gModel.includes('1.5')) {
@@ -696,16 +738,21 @@ export default function App() {
           return { role: m.role === 'assistant' ? 'model' : 'user', parts };
         });
 
+        const gBody = {
+          contents,
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          generationConfig: { maxOutputTokens: 4096 }
+        };
+        if (useWebPlugin && allFrames.length === 0 && !urlContextText) {
+          gBody.tools = [{ google_search: {} }];
+        }
+
         const endpoint = canStream ? `${gModel}:streamGenerateContent?alt=sse` : `${gModel}:generateContent`;
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${endpoint}`, {
           method: 'POST',
           signal: controller.signal,
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey.trim() },
-          body: JSON.stringify({
-            contents,
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            generationConfig: { maxOutputTokens: 4096 }
-          })
+          body: JSON.stringify(gBody)
         });
 
         if (!res.ok) {
@@ -716,6 +763,7 @@ export default function App() {
         if (canStream && res.body?.getReader) {
           let finishNote = '';
           let sawThought = false;
+          const geminiAnn = [];
           await readSSE(res, (json) => {
             const cand = json.candidates?.[0];
             const parts = cand?.content?.parts || [];
@@ -725,15 +773,21 @@ export default function App() {
             }
             const txt = parts.filter(p => !p.thought).map(p => p.text || '').join('');
             pushChunk(txt);
+            const gChunks = cand?.groundingMetadata?.groundingChunks || [];
+            gChunks.forEach(ch => { if (ch?.web?.uri) geminiAnn.push({ url: ch.web.uri, title: ch.web.title }); });
             if (cand?.finishReason === 'SAFETY') finishNote = '\n\n[⚠️ Cut short by model safety filter]';
             else if (cand?.finishReason === 'MAX_TOKENS') finishNote = '\n\n[⚠️ Reached max output length]';
           }, resetWatchdog);
           pushChunk('', true);
-          return { raw: streamAccumRef.current + finishNote, annotations: [] };
+          return { raw: streamAccumRef.current + finishNote, annotations: geminiAnn };
         }
 
         const data = await res.json();
-        return { raw: data.candidates?.[0]?.content?.parts?.filter(p => !p.thought).map(p => p.text || '').join('') || '', annotations: [] };
+        const gChunks = data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+        return {
+          raw: data.candidates?.[0]?.content?.parts?.filter(p => !p.thought).map(p => p.text || '').join('') || '',
+          annotations: gChunks.filter(ch => ch?.web?.uri).map(ch => ({ url: ch.web.uri, title: ch.web.title }))
+        };
       }
 
       if (isClaudeModel && anthropicKey.trim()) {
@@ -769,7 +823,7 @@ export default function App() {
       }) : ({ role: m.role, content: m.content }));
 
       const body = { model: selectedModel.id, stream: canStream, messages: [{ role: "system", content: systemPrompt }, ...openRouterMsgs] };
-      if (useWebPlugin && allFrames.length === 0) body.plugins = [{ id: 'web', max_results: 3 }];
+      if (useWebPlugin && allFrames.length === 0 && !urlContextText) body.plugins = [{ id: 'web', max_results: 3 }];
 
       const targetKey = apiKey.trim() || geminiKey.trim() || anthropicKey.trim();
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -787,7 +841,7 @@ export default function App() {
         let sawReasoning = false;
         await readSSE(res, (json) => {
           const delta = json.choices?.[0]?.delta;
-          if (!sawReasoning && delta?.reasoning) { sawReasoning = true; setThinkingStatus('🧠 Reasoning through your code...'); }
+          if (!sawReasoning && delta?.reasoning) { sawReasoning = true; setThinkingStatus('🧠 Reasoning through your prompt...'); }
           if (delta?.content) pushChunk(delta.content);
           const ann = delta?.annotations || json.choices?.[0]?.message?.annotations;
           if (Array.isArray(ann)) collectedAnn.push(...ann);
@@ -804,13 +858,14 @@ export default function App() {
       try {
         result = await attemptFetch(chatHistory, webSearchOn);
       } catch (webErr) {
-        if (webErr.name !== 'AbortError' && webSearchOn && (webErr.message.includes('402') || webErr.message.toLowerCase().includes('credit'))) {
+        // If web plugin / google_search isn't supported or lacks credits, retry gracefully without tool!
+        if (webErr.name !== 'AbortError' && webSearchOn && (webErr.message.includes('402') || webErr.message.includes('400') || webErr.message.toLowerCase().includes('credit') || webErr.message.toLowerCase().includes('tool'))) {
           setThinkingStatus('🌐 Switching to free web lookup...');
           result = await attemptFetch(chatHistory, false);
         } else { throw webErr; }
       }
 
-      let extraSources = [];
+      let extraSources = [...urlSources];
       const trimmedRaw = (result.raw || '').trim();
       const weatherMatch = trimmedRaw.match(/^\[\[WEATHER:([^\]\n]+)\]\]$/i);
       const searchMatch = trimmedRaw.match(/^\[\[SEARCH:([^\]\n]+)\]\]$/i);
@@ -821,7 +876,7 @@ export default function App() {
         setStreamingText('');
         setThinkingStatus(`🌐 Visiting open-meteo.com (${city})...`);
         const liveData = await fetchLiveWeather(city);
-        extraSources = liveData.sources;
+        extraSources = [...extraSources, ...liveData.sources];
         setThinkingStatus(`✧ Synthesizing forecast...`);
         result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM LIVE DATA - DO NOT OUTPUT TAGS]\n${liveData.text}\nAnswer naturally!` }], false);
       } else if (searchMatch && isValidArg(searchMatch[1])) {
@@ -829,7 +884,7 @@ export default function App() {
         setStreamingText('');
         setThinkingStatus(`🌐 Visiting en.wikipedia.org (${q})...`);
         const wikiData = await fetchWikiSearch(q);
-        extraSources = wikiData.sources;
+        extraSources = [...extraSources, ...wikiData.sources];
         setThinkingStatus(`✧ Reading Wikipedia pages...`);
         result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM SEARCH DATA - DO NOT OUTPUT TAGS]\n${wikiData.text}\nAnswer naturally!` }], false);
       }
@@ -975,8 +1030,8 @@ export default function App() {
             <Text style={styles.infoItemBody}>API keys and chat logs live strictly in your browser’s localStorage and connect directly to Google, Anthropic, or OpenRouter—zero middleman servers.</Text>
             <Text style={styles.infoItemTitle}>📄 Direct File Export & Live Preview</Text>
             <Text style={styles.infoItemBody}>Ask Tessarc to put code or data in a file to export `.html`, `.csv`, `.py`, `.lua`, `.js`, `.md`, or `.txt`. HTML files run live right inside the app.</Text>
-            <Text style={styles.infoItemTitle}>👁 Vision & Web</Text>
-            <Text style={styles.infoItemBody}>Supports image uploads, up to 70s videos, live weather, and real-time web citations.</Text>
+            <Text style={styles.infoItemTitle}>🌐 Live Link Reader & Vision</Text>
+            <Text style={styles.infoItemBody}>Paste any URL for Tessarc to visit and read live, attach photos or up to 70s videos, or toggle 🌐 for live web search.</Text>
             <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL(GITHUB_URL)}>
               <Text style={[styles.noticeBtnSecondaryText, { color: '#60A5FA' }]}>Inspect Source Code on GitHub ↗</Text>
             </TouchableOpacity>
