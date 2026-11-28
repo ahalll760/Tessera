@@ -8,15 +8,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const GITHUB_URL = 'https://github.com/ahalll760/Tessera';
 
+// --- EXPANDED PROVIDER ROSTER (INCLUDES GEMINI 4 HYDROGEN) ---
 const DEFAULT_PROVIDERS = [
   {
     id: 'google',
-    name: 'Google & Gemini (Free)',
+    name: 'Google & Gemini',
     models: [
-      { id: 'google/gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite (500/Day Free)', isVision: true, free: true },
-      { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Deep Think)', isVision: true, free: true },
-      { id: 'google/gemini-3.6-flash', name: 'Gemini 3.6 Flash (Free)', isVision: true, free: true },
-      { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite (Free)', isVision: true, free: true }
+      { id: 'google/gemini-4-hydrogen', name: 'Gemini 4 Hydrogen (Free & Fast)', isVision: true, free: true },
+      { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash (Free)', isVision: true, free: true },
+      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', isVision: true },
+      { id: 'google/gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite (Free)', isVision: true, free: true }
     ]
   },
   {
@@ -48,16 +49,47 @@ const DEFAULT_PROVIDERS = [
   }
 ];
 
+// --- MODULAR WORKSPACE PLUGINS REGISTRY ---
+const PLUGIN_REGISTRY = [
+  { id: 'web_reader', name: 'Live Web Reader', icon: '🌐', desc: 'Fetches live website content & articles in real-time.' },
+  { id: 'calc_runner', name: 'Code & Math Runner', icon: '🧮', desc: 'Safely runs arithmetic & JavaScript calculations in-browser.' },
+  { id: 'table_builder', name: 'Structured Tables', icon: '📊', desc: 'Renders JSON & CSV outputs into clean, responsive data tables.' },
+  { id: 'weather_live', name: 'Live Weather', icon: '🌦️', desc: 'Real-time global weather forecast via Open-Meteo ($0 cost).' },
+  { id: 'file_exporter', name: 'File Artifacts', icon: '💾', desc: 'Generates downloadable scripts, code & live HTML app previews.' }
+];
+
+const DEFAULT_ACTIVE_PLUGINS = ['web_reader', 'calc_runner', 'table_builder', 'weather_live', 'file_exporter'];
+
 const STARTER_PROMPTS = [
   { icon: '</>', title: 'Build & run a live file', sub: 'Interactive HTML preview', prompt: 'Put a fun retro snake game into a file called snake.html' },
-  { icon: '⇄', title: 'Compare AI strengths', sub: 'Gemini vs Claude vs DeepSeek', prompt: 'Compare Gemini, Claude, and DeepSeek—which one should I pick for coding vs writing?' },
-  { icon: '⊞', title: 'Export structured file', sub: 'Download CSV, Python, Lua, MD', prompt: 'Put a 7-day beginner workout and meal schedule into a file called plan.csv' },
-  { icon: '⊕', title: 'Search the live web', sub: 'Real-time + clickable sources', prompt: 'What are the biggest AI & tech news stories right now?', web: true }
+  { icon: '🧮', title: 'Calculate with code', sub: 'Math & script execution', prompt: 'Calculate the compound interest on $5,000 at 7% annual return for 15 years using the math tool' },
+  { icon: '📊', title: 'Generate structured table', sub: 'Clean data visualization', prompt: 'Create a structured comparison table of the top 5 frontend frameworks with pros and cons' },
+  { icon: '⊕', title: 'Search the live web', sub: 'Real-time + verified sources', prompt: 'What are the biggest AI & tech news stories right now?', web: true }
 ];
 
 const EXT_MAP = { javascript: 'js', js: 'js', jsx: 'jsx', ts: 'ts', python: 'py', py: 'py', lua: 'lua', html: 'html', css: 'css', json: 'json', csv: 'csv', sql: 'sql', sh: 'sh', md: 'md', txt: 'txt' };
 const WMO = { 0:'Clear sky', 1:'Mainly clear', 2:'Partly cloudy', 3:'Overcast', 45:'Foggy', 48:'Foggy', 51:'Light drizzle', 53:'Drizzle', 61:'Light rain', 63:'Rain', 65:'Heavy rain', 71:'Light snow', 73:'Snow', 80:'Rain showers', 95:'Thunderstorm' };
 
+// --- LIVE WEB READER ---
+const fetchUrlContent = async (rawUrl) => {
+  const cleanUrl = rawUrl.replace(/[),.;]+$/, '');
+  let domain = cleanUrl;
+  try { domain = new URL(cleanUrl).hostname.replace(/^www\./, ''); } catch {}
+  try {
+    const res = await fetch(`https://r.jina.ai/${cleanUrl}`);
+    if (!res.ok) return { url: cleanUrl, domain, text: null };
+    const txt = await res.text();
+    return {
+      url: cleanUrl,
+      domain,
+      text: txt && txt.trim().length > 15 ? txt.trim().slice(0, 6500) : null
+    };
+  } catch {
+    return { url: cleanUrl, domain, text: null };
+  }
+};
+
+// --- LIVE WEATHER ENGINE ---
 const fetchLiveWeather = async (rawCity) => {
   try {
     const clean = rawCity.split(',')[0].trim();
@@ -74,16 +106,16 @@ const fetchLiveWeather = async (rawCity) => {
   } catch { return { text: 'Weather service temporarily unreachable.', sources: [] }; }
 };
 
-const fetchWikiSearch = async (query) => {
+// --- SAFE CLIENT-SIDE CODE & CALC RUNNER ---
+const executeSafeCalc = (codeString) => {
   try {
-    const data = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&origin=*`).then(r => r.json());
-    const hits = (data?.query?.search || []).slice(0, 3);
-    if (!hits.length) return { text: 'No search results found.', sources: [] };
-    return {
-      text: hits.map(h => `- ${h.title}: ${h.snippet.replace(/<[^>]*>/g, '')}`).join('\n'),
-      sources: hits.map(h => ({ url: `https://en.wikipedia.org/wiki/${encodeURIComponent(h.title.replace(/ /g, '_'))}`, domain: `en.wikipedia.org`, title: h.title }))
-    };
-  } catch { return { text: 'Search service unreachable.', sources: [] }; }
+    const sanitized = codeString.replace(/window|document|fetch|localStorage|AsyncStorage|eval|XMLHttpRequest/gi, '');
+    const fn = new Function(`"use strict"; return (${sanitized});`);
+    const output = fn();
+    return { success: true, result: typeof output === 'object' ? JSON.stringify(output, null, 2) : String(output) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 };
 
 const cleanLinksAndExtractSources = (rawText, annotations = [], extraSources = []) => {
@@ -97,7 +129,10 @@ const cleanLinksAndExtractSources = (rawText, annotations = [], extraSources = [
       sources.push({ url: cleanUrl, domain, title: title || domain });
     }
   };
-  (annotations || []).forEach(a => { if (a?.url_citation?.url) addSource(a.url_citation.url, a.url_citation.title); });
+  (annotations || []).forEach(a => {
+    if (a?.url_citation?.url) addSource(a.url_citation.url, a.url_citation.title);
+    else if (a?.url) addSource(a.url, a.title);
+  });
 
   const isDomainOrNum = (lbl) => /^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(lbl.trim()) || /^\d+$/.test(lbl.trim());
   const parts = (rawText || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
@@ -217,7 +252,93 @@ const readSSE = async (res, onEvent, onPulse) => {
   if (buffer.trim()) processLines(buffer.split(/\r?\n/));
 };
 
-const EmptyHero = ({ onSelectPrompt, onOpenSettings, onOpenInfo, hasKey, demoCredits }) => {
+// --- STRUCTURED TABLE PARSER & RENDERER ---
+const DataTable = ({ rawContent }) => {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    try {
+      if (rawContent.trim().startsWith('[') || rawContent.trim().startsWith('{')) {
+        const parsed = JSON.parse(rawContent.trim());
+        const rows = Array.isArray(parsed) ? parsed : [parsed];
+        const headers = Array.from(new Set(rows.flatMap(r => Object.keys(r))));
+        setData({ headers, rows: rows.map(r => headers.map(h => r[h] !== undefined ? String(r[h]) : '')) });
+      } else {
+        const lines = rawContent.trim().split('\n').map(l => l.split(/,|\t/).map(c => c.trim()));
+        if (lines.length > 1) {
+          setData({ headers: lines[0], rows: lines.slice(1) });
+        }
+      }
+    } catch {
+      setData(null);
+    }
+  }, [rawContent]);
+
+  if (!data) return <Text style={styles.msgText}>{rawContent}</Text>;
+
+  return (
+    <View style={styles.tableCard}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+        <View>
+          <View style={styles.tableHeaderRow}>
+            {data.headers.map((h, i) => (
+              <Text key={i} style={styles.tableHeaderCell}>{h}</Text>
+            ))}
+          </View>
+          {data.rows.map((row, rIdx) => (
+            <View key={rIdx} style={[styles.tableDataRow, rIdx % 2 === 1 && styles.tableDataRowAlt]}>
+              {row.map((cell, cIdx) => (
+                <Text key={cIdx} style={styles.tableDataCell}>{cell}</Text>
+              ))}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
+
+// --- TOOL STATUS BADGE IN CHAT STREAM ---
+const ToolStatusBadge = ({ toolName, status, resultText, onConfirm }) => {
+  const [expanded, setExpanded] = useState(false);
+  const isPending = status === 'pending_confirmation';
+  const isRunning = status === 'running';
+
+  return (
+    <View style={[styles.toolBadgeCard, isPending && styles.toolBadgePending]}>
+      <View style={styles.toolBadgeHeader}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={styles.toolBadgeIcon}>{isPending ? '🔒' : isRunning ? '⚙️' : '✓'}</Text>
+          <Text style={styles.toolBadgeTitle}>
+            {toolName}: {isPending ? 'Requires Confirmation' : isRunning ? 'Executing...' : 'Completed'}
+          </Text>
+        </View>
+        {resultText && (
+          <TouchableOpacity onPress={() => setExpanded(!expanded)} style={styles.toolExpandBtn}>
+            <Text style={styles.toolExpandTxt}>{expanded ? 'Hide ▲' : 'View ▼'}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {isPending && (
+        <View style={styles.confirmRow}>
+          <Text style={styles.confirmPrompt}>Allow Tessarc to run this calculation / action?</Text>
+          <TouchableOpacity onPress={onConfirm} style={styles.confirmBtn}>
+            <Text style={styles.confirmBtnTxt}>Allow & Run ▶</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {expanded && resultText && (
+        <View style={styles.toolResultBody}>
+          <Text style={styles.toolResultTxt}>{resultText}</Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
+const EmptyHero = ({ onSelectPrompt, onOpenSettings, onOpenInfo, hasKey, demoCredits, activePluginsCount }) => {
   const pulse = useRef(new Animated.Value(0.65)).current;
   const scale = useRef(new Animated.Value(1)).current;
   const fadeUp = useRef(new Animated.Value(0)).current;
@@ -235,16 +356,18 @@ const EmptyHero = ({ onSelectPrompt, onOpenSettings, onOpenInfo, hasKey, demoCre
       <Animated.View style={[styles.heroOrb, { opacity: pulse, transform: [{ scale }] }]}><Text style={styles.emptyLogo}>✧</Text></Animated.View>
       <Text style={styles.heroBrand}>Tessarc</Text>
       <Text style={styles.emptyChatText}>One workspace for every frontier AI.</Text>
-      
-      {/* PROMINENT FREE DEMO BANNER */}
-      <View style={styles.demoHeroCard}>
-        <Text style={styles.demoHeroTitle}>⚡ Free Demo Mode Active</Text>
-        <Text style={styles.demoHeroSub}>You have <Text style={{color: '#4ADE80', fontWeight: '800'}}>{demoCredits} free messages</Text> left. Chat instantly with zero API setup!</Text>
-        <TouchableOpacity style={styles.heroSettingsLink} onPress={onOpenSettings} activeOpacity={0.8}>
-          <Text style={styles.heroSettingsLinkText}>Or connect your own API key in Settings →</Text>
-        </TouchableOpacity>
+      <View style={styles.trustStrip}>
+        <Text style={styles.trustText}>Gemini 4 Hydrogen • Claude 3.7 • GPT-4o • DeepSeek</Text>
+        <Text style={styles.trustSub}>Local-first privacy • {activePluginsCount} Workspace Plugins Active • Live Web</Text>
       </View>
-
+      {!hasKey && (
+        <View style={styles.demoBannerWrap}>
+          <View style={styles.demoPill}><Text style={styles.demoPillText}>⚡ Free Demo: {demoCredits} messages left</Text></View>
+          <TouchableOpacity style={styles.heroSecondaryCta} onPress={onOpenSettings} activeOpacity={0.85}>
+            <Text style={styles.heroSecondaryCtaText}>Or connect your own key →</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <View style={styles.starterGrid}>
         {STARTER_PROMPTS.map((item, idx) => (
           <TouchableOpacity key={idx} style={styles.starterCard} onPress={() => onSelectPrompt(item)} activeOpacity={0.75}>
@@ -255,7 +378,7 @@ const EmptyHero = ({ onSelectPrompt, onOpenSettings, onOpenInfo, hasKey, demoCre
         ))}
       </View>
       <View style={styles.heroFooterLinks}>
-        <TouchableOpacity onPress={onOpenInfo} style={styles.footerLinkBtn}><Text style={styles.footerLinkText}>? Privacy & Formats</Text></TouchableOpacity>
+        <TouchableOpacity onPress={onOpenInfo} style={styles.footerLinkBtn}><Text style={styles.footerLinkText}>? Privacy & Tools</Text></TouchableOpacity>
         <Text style={styles.footerDot}>•</Text>
         <TouchableOpacity onPress={() => Linking.openURL(GITHUB_URL)} style={styles.footerLinkBtn}><Text style={styles.footerLinkText}>Open Source (GitHub) ↗</Text></TouchableOpacity>
       </View>
@@ -278,7 +401,7 @@ const AnimatedBubble = ({ children, style }) => {
 const ThinkingIndicator = ({ statusText, webActive }) => {
   const fadeAnim = useRef(new Animated.Value(0.35)).current;
   const [stepIdx, setStepIdx] = useState(0);
-  const webSteps = ['🌐 Querying web index...', '🌐 Visiting top websites...', '🌐 Reading live pages...', '✧ Synthesizing sources...'];
+  const webSteps = ['🌐 Scanning sources...', '🌐 Reading live pages...', '✧ Synthesizing context...'];
   useEffect(() => {
     Animated.loop(Animated.sequence([Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }), Animated.timing(fadeAnim, { toValue: 0.35, duration: 600, useNativeDriver: true })])).start();
   }, []);
@@ -344,7 +467,7 @@ const CodeBlock = ({ code, filename, language }) => {
   );
 };
 
-const MessageItem = memo(({ item, index, isEditing, showEditBtn, onStartEdit, onOpenPreview }) => {
+const MessageItem = memo(({ item, index, isEditing, showEditBtn, onStartEdit, onOpenPreview, onConfirmTool }) => {
   const [expanded, setExpanded] = useState(false);
   const isUser = item.role === 'user';
 
@@ -375,10 +498,26 @@ const MessageItem = memo(({ item, index, isEditing, showEditBtn, onStartEdit, on
   }
 
   const mentionedFile = (item.content || '').match(/`?([a-z0-9_-]+\.(?:html?|lua|py|js|jsx|ts|css|json|csv|txt|md|sql|sh))`?/i)?.[1];
-  const parts = (item.content || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|```[\s\S]*?```)/g);
+  const parts = (item.content || '').split(/(\[\[\[FILE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/FILE\]\]\]|\[\[\[TABLE:[\s\S]*?\]\]\][\s\S]*?\[\[\[\/TABLE\]\]\]|```[\s\S]*?```)/g);
+
   return (
     <View style={styles.aiMsg}>
+      {/* TOOL EXECUTION BADGES */}
+      {item.toolCalls && item.toolCalls.map((t, tIdx) => (
+        <ToolStatusBadge 
+          key={tIdx} 
+          toolName={t.name} 
+          status={t.status} 
+          resultText={t.result} 
+          onConfirm={() => onConfirmTool(t)} 
+        />
+      ))}
+
       {parts.map((part, i) => {
+        if (part.startsWith('[[[TABLE:')) {
+          const match = part.match(/^\[\[\[TABLE:(.*?)\]\]\]([\s\S]*?)\[\[\[\/TABLE\]\]\]$/);
+          if (match) return <DataTable key={i} rawContent={match[2]} />;
+        }
         if (part.startsWith('[[[FILE:')) {
           const m = part.match(/^\[\[\[FILE:(.*?)\]\]\]([\s\S]*?)\[\[\[\/FILE\]\]\]$/);
           if (m) {
@@ -408,6 +547,7 @@ const MessageItem = memo(({ item, index, isEditing, showEditBtn, onStartEdit, on
         }
         return part.trim() ? <View key={i}>{renderRichText(part)}</View> : null;
       })}
+
       {item.sources?.length > 0 && (
         <View style={styles.sourcesWrap}>
           <Text style={styles.sourcesLabel}>VISITED SOURCES</Text>
@@ -427,6 +567,7 @@ const MessageItem = memo(({ item, index, isEditing, showEditBtn, onStartEdit, on
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('chat');
   const [showModels, setShowModels] = useState(false);
+  const [showPluginsModal, setShowPluginsModal] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState('google');
   const [modelSearch, setModelSearch] = useState('');
@@ -439,6 +580,7 @@ export default function App() {
   const [geminiKey, setGeminiKey] = useState(''); 
   const [anthropicKey, setAnthropicKey] = useState(''); 
   const [demoCredits, setDemoCredits] = useState(5);
+  const [activePlugins, setActivePlugins] = useState(DEFAULT_ACTIVE_PLUGINS);
   const [userContext, setUserContext] = useState('');
   const [savedChats, setSavedChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
@@ -457,8 +599,6 @@ export default function App() {
 
   const [attachments, setAttachments] = useState([]);
   const [mediaNotice, setMediaNotice] = useState('');
-  const [showNoticeModal, setShowNoticeModal] = useState(false);
-  const [dontShowAgain, setDontShowAgain] = useState(false);
 
   const scrollRef = useRef(null);
   const abortRef = useRef(null);
@@ -485,13 +625,10 @@ export default function App() {
         if (storedChats) setSavedChats(JSON.parse(storedChats));
         const storedContext = await AsyncStorage.getItem('@council_context_v1');
         if (storedContext) setUserContext(storedContext);
-
+        const storedPlugins = await AsyncStorage.getItem('@tessarc_plugins_v1');
+        if (storedPlugins) setActivePlugins(JSON.parse(storedPlugins));
         const storedCredits = await AsyncStorage.getItem('@tessarc_demo_credits_v1');
         if (storedCredits !== null) setDemoCredits(Number(storedCredits));
-
-        const hideNotice = await AsyncStorage.getItem('@council_hide_api_notice');
-        if (hideNotice === 'true') setDontShowAgain(true);
-        else if (!storedKey && !storedGemini && !storedAnthropic) setShowNoticeModal(true);
       } catch (err) {}
     })();
 
@@ -509,14 +646,15 @@ export default function App() {
         setAllLiveModels(formatted);
         const freeModels = [{ id: 'openrouter/free', name: 'Auto-Router (Fast)', isVision: true, free: true }, ...formatted.filter(m => m.free && m.id !== 'openrouter/free').slice(0, 20)];
         const googleModels = [
-          { id: 'google/gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite (500/Day Free)', isVision: true, free: true },
-          { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash (Deep Think)', isVision: true, free: true },
-          { id: 'google/gemini-3.6-flash', name: 'Gemini 3.6 Flash (Free)', isVision: true, free: true },
+          { id: 'google/gemini-4-hydrogen', name: 'Gemini 4 Hydrogen (Free & Fast)', isVision: true, free: true },
+          { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash (Free)', isVision: true, free: true },
+          { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', isVision: true },
+          { id: 'google/gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite (Free)', isVision: true, free: true },
           ...formatted.filter(m => (m.id.startsWith('google/') || m.name.toLowerCase().includes('gemini') || m.name.toLowerCase().includes('hydrogen')) && !m.id.includes('2.0') && !m.id.includes('1.5')).slice(0, 12)
         ];
         const pick = (fn) => formatted.filter(fn).slice(0, 10);
         const liveProviders = [
-          { id: 'google', name: 'Google & Gemini (Free)', models: googleModels },
+          { id: 'google', name: 'Google & Gemini', models: googleModels },
           { id: 'free_tier', name: '🌟 OpenRouter Free', models: freeModels },
           { id: 'openai', name: 'OpenAI', models: pick(m => m.id.startsWith('openai/')) },
           { id: 'anthropic', name: 'Claude (Paid)', models: pick(m => m.id.startsWith('anthropic/')) },
@@ -534,6 +672,14 @@ export default function App() {
   const handleAnthropicKeyChange = async (key) => { setAnthropicKey(key); try { await AsyncStorage.setItem('@council_anthropic_key_v1', key.trim()); } catch (e) {} };
   const handleContextChange = async (text) => { setUserContext(text); try { await AsyncStorage.setItem('@council_context_v1', text); } catch (e) {} };
   
+  const togglePlugin = (id) => {
+    setActivePlugins(prev => {
+      const next = prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id];
+      AsyncStorage.setItem('@tessarc_plugins_v1', JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  };
+
   const syncChatsWithStorage = async (list) => {
     setSavedChats(list);
     try { await AsyncStorage.setItem('@council_chats_v1', JSON.stringify(list)); } catch (e) {
@@ -624,7 +770,7 @@ export default function App() {
     const allFrames = attachments.flatMap(a => a.frames);
     const hasVideo = attachments.some(a => a.type === 'video');
     const userText = inputText.trim() || (hasVideo ? 'What is happening in this video?' : 'Analyze this image.');
-    const userAskedForFile = /\b(create|make|put|give|save|export|send|build|write|in|into|as|download\w*|downland\w*)\b[\s\S]{0,25}\bfile\b/i.test(userText);
+    const userAskedForFile = activePlugins.includes('file_exporter') && /\b(create|make|put|give|save|export|send|build|write|in|into|as|download\w*|downland\w*)\b[\s\S]{0,25}\bfile\b/i.test(userText);
     
     const newUserMsg = { role: 'user', content: userText, images: allFrames };
     const baseHistory = editingIndex !== null ? messages.slice(0, editingIndex) : messages;
@@ -635,7 +781,7 @@ export default function App() {
     setThinkingStatus(''); setIsLoading(true);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 50);
 
-    const isGeminiModel = selectedModel.id.includes('gemini');
+    const isGeminiModel = selectedModel.id.includes('gemini') || selectedModel.id.includes('hydrogen');
     const isClaudeModel = selectedModel.id.includes('claude');
     const hasAnyKey = Boolean(apiKey.trim() || geminiKey.trim() || anthropicKey.trim());
     const isDemoMode = !hasAnyKey;
@@ -650,7 +796,7 @@ export default function App() {
 
     if (!isDemoMode) {
       if (isGeminiModel && !geminiKey.trim() && !apiKey.trim()) {
-        setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Add your free Google Gemini key in Settings (☰ > ⚙ Settings)!' }]);
+        setMessages([...chatHistory, { role: 'assistant', content: '⚠️ Add your free Google Gemini key (starts with AQ.) in Settings!' }]);
         return setIsLoading(false);
       }
       if (isClaudeModel && !anthropicKey.trim() && !apiKey.trim()) {
@@ -678,9 +824,13 @@ export default function App() {
       }
     };
 
+    // --- CHECK WEB READER PLUGIN FOR PASTED URLS ---
     let urlSources = [];
     let urlContextText = '';
-    const urlsInMsg = [...new Set((userText.match(/https?:\/\/[^\s<>"']+/gi) || []).slice(0, 2))];
+    const urlsInMsg = activePlugins.includes('web_reader') 
+      ? [...new Set((userText.match(/https?:\/\/[^\s<>"']+/gi) || []).slice(0, 2))]
+      : [];
+
     if (urlsInMsg.length > 0 && !userText.includes('import React')) {
       try {
         let firstDomain = 'link';
@@ -724,26 +874,27 @@ export default function App() {
           body: JSON.stringify({ messages: recentMsgs })
         });
         const data = await res.json();
-        if (!res.ok || data.error) throw new Error(data?.error || 'Demo service unavailable. Add your own key in Settings!');
-        
+        if (!res.ok || data.error) throw new Error(data?.error || 'Demo service unavailable.');
         const newCredits = Math.max(0, demoCredits - 1);
         setDemoCredits(newCredits);
         AsyncStorage.setItem('@tessarc_demo_credits_v1', String(newCredits)).catch(() => {});
-        
         return { raw: data.text || '', annotations: [] };
       }
 
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
-      let systemPrompt = `You are Tessarc, a smart, witty AI assistant powered by ${selectedModel.name}. Current date/time: ${now}. Match the user's tone and language naturally. Use emojis naturally 😂✨. If the user pastes code, explain/fix it directly—NEVER run weather/search tools on pasted code.\nCODE VS FILE RULE:\n1) If asked for code normally, output a standard markdown code block (\`\`\`lua ... \`\`\`).\n2) ONLY if asked to "put it in a file" or "create a file", wrap it in [[[FILE:filename.ext]]] and [[[/FILE]]].\nNEVER write website domain names or raw URLs in your reply text.\nLIVE TOOLS: Only if directly asked for current weather in a real city, reply ONLY with [[WEATHER:CityName]]. Only if asked a factual web question you don't know, reply ONLY with [[SEARCH:query]].`;
+      const activePluginsList = activePlugins.join(', ');
+      
+      let systemPrompt = `You are Tessarc, an elite AI assistant powered by ${selectedModel.name}. Current date/time: ${now}.\nACTIVE WORKSPACE PLUGINS: [${activePluginsList}].\nRULES:\n1) Emojis & tone: witty, charismatic, match the user's language.\n2) If asked for code normally, output standard markdown code blocks (\`\`\`lang ... \`\`\`).\n3) If file_exporter is enabled and user explicitly requests a file, output strictly inside [[[FILE:filename.ext]]] ... [[[/FILE]]].\n4) If table_builder is enabled and user requests a table or structured dataset, output strictly inside [[[TABLE:json]]] ... [[[/TABLE]]].\n5) If calc_runner is enabled and complex math or calculation is required, reply ONLY with: [[CALC:math_expression_or_js]].\n6) If weather_live is enabled and current weather is needed, reply ONLY with: [[WEATHER:CityName]].\n7) NEVER write raw website domains or URLs in chat text.`;
       if (userContext.trim() !== '') systemPrompt += `\nUser Context: ${userContext}`;
 
       const canStream = Platform.OS === 'web' && typeof ReadableStream !== 'undefined';
 
+      // ROUTE 1: GOOGLE AI STUDIO (GEMINI 4 HYDROGEN & GEMINI SERIES)
       if (isGeminiModel && geminiKey.trim()) {
         let gModel = selectedModel.id.replace('google/', '').trim();
-        if (!gModel.startsWith('gemini') || gModel.includes('2.0') || gModel.includes('1.5')) {
-          gModel = 'gemini-3.8-flash';
-        }
+        // Support hydrogen and flash-lite
+        if (gModel.includes('hydrogen')) gModel = 'gemini-4-hydrogen';
+        else if (gModel.includes('2.0') || gModel.includes('1.5')) gModel = 'gemini-2.5-flash';
 
         const contents = recentMsgs.map(m => {
           const parts = [];
@@ -757,16 +908,21 @@ export default function App() {
           return { role: m.role === 'assistant' ? 'model' : 'user', parts };
         });
 
+        const gBody = {
+          contents,
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          generationConfig: { maxOutputTokens: 4096 }
+        };
+        if (useWebPlugin && activePlugins.includes('web_reader') && allFrames.length === 0 && !urlContextText) {
+          gBody.tools = [{ google_search: {} }];
+        }
+
         const endpoint = canStream ? `${gModel}:streamGenerateContent?alt=sse` : `${gModel}:generateContent`;
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${endpoint}`, {
           method: 'POST',
           signal: controller.signal,
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey.trim() },
-          body: JSON.stringify({
-            contents,
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            generationConfig: { maxOutputTokens: 4096 }
-          })
+          body: JSON.stringify(gBody)
         });
 
         if (!res.ok) {
@@ -776,21 +932,16 @@ export default function App() {
 
         if (canStream && res.body?.getReader) {
           let finishNote = '';
-          let sawThought = false;
           const geminiAnn = [];
           await readSSE(res, (json) => {
             const cand = json.candidates?.[0];
             const parts = cand?.content?.parts || [];
-            if (!sawThought && parts.some(p => p.thought)) {
-              sawThought = true;
-              setThinkingStatus('🧠 Analyzing carefully...');
-            }
             const txt = parts.filter(p => !p.thought).map(p => p.text || '').join('');
             pushChunk(txt);
             const gChunks = cand?.groundingMetadata?.groundingChunks || [];
             gChunks.forEach(ch => { if (ch?.web?.uri) geminiAnn.push({ url: ch.web.uri, title: ch.web.title }); });
-            if (cand?.finishReason === 'SAFETY') finishNote = '\n\n[⚠️ Cut short by model safety filter]';
-            else if (cand?.finishReason === 'MAX_TOKENS') finishNote = '\n\n[⚠️ Reached max output length]';
+            if (cand?.finishReason === 'SAFETY') finishNote = '\n\n[⚠️ Cut short by safety filter]';
+            else if (cand?.finishReason === 'MAX_TOKENS') finishNote = '\n\n[⚠️ Reached max token limit]';
           }, resetWatchdog);
           pushChunk('', true);
           return { raw: streamAccumRef.current + finishNote, annotations: geminiAnn };
@@ -804,6 +955,7 @@ export default function App() {
         };
       }
 
+      // ROUTE 2: DIRECT ANTHROPIC (CLAUDE)
       if (isClaudeModel && anthropicKey.trim()) {
         const formattedMsgs = recentMsgs.map(m => m.images?.length ? ({
           role: m.role,
@@ -831,13 +983,16 @@ export default function App() {
         return { raw: data.content?.[0]?.text || '', annotations: [] };
       }
 
+      // ROUTE 3: OPENROUTER
       const openRouterMsgs = recentMsgs.map(m => m.images?.length ? ({
         role: m.role,
         content: [{ type: 'text', text: m.content }, ...m.images.map(url => ({ type: 'image_url', image_url: { url } }))]
       }) : ({ role: m.role, content: m.content }));
 
       const body = { model: selectedModel.id, stream: canStream, messages: [{ role: "system", content: systemPrompt }, ...openRouterMsgs] };
-      if (useWebPlugin && allFrames.length === 0 && !urlContextText) body.plugins = [{ id: 'web', max_results: 3 }];
+      if (useWebPlugin && activePlugins.includes('web_reader') && allFrames.length === 0 && !urlContextText) {
+        body.plugins = [{ id: 'web', max_results: 3 }];
+      }
 
       const targetKey = apiKey.trim() || geminiKey.trim() || anthropicKey.trim();
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -852,10 +1007,8 @@ export default function App() {
       }
       if (canStream && res.body?.getReader) {
         const collectedAnn = [];
-        let sawReasoning = false;
         await readSSE(res, (json) => {
           const delta = json.choices?.[0]?.delta;
-          if (!sawReasoning && delta?.reasoning) { sawReasoning = true; setThinkingStatus('🧠 Reasoning through your prompt...'); }
           if (delta?.content) pushChunk(delta.content);
           const ann = delta?.annotations || json.choices?.[0]?.message?.annotations;
           if (Array.isArray(ann)) collectedAnn.push(...ann);
@@ -872,39 +1025,51 @@ export default function App() {
       try {
         result = await attemptFetch(chatHistory, webSearchOn);
       } catch (webErr) {
-        if (webErr.name !== 'AbortError' && webSearchOn && (webErr.message.includes('402') || webErr.message.toLowerCase().includes('credit'))) {
-          setThinkingStatus('🌐 Switching to free web lookup...');
+        if (webErr.name !== 'AbortError' && webSearchOn && (webErr.message.includes('402') || webErr.message.includes('400') || webErr.message.toLowerCase().includes('credit') || webErr.message.toLowerCase().includes('tool'))) {
+          setThinkingStatus('🌐 Switching to standard lookup...');
           result = await attemptFetch(chatHistory, false);
         } else { throw webErr; }
       }
 
       let extraSources = [...urlSources];
+      let toolPills = [];
       const trimmedRaw = (result.raw || '').trim();
-      const weatherMatch = trimmedRaw.match(/^\[\[WEATHER:([^\]\n]+)\]\]$/i);
-      const searchMatch = trimmedRaw.match(/^\[\[SEARCH:([^\]\n]+)\]\]$/i);
-      const isValidArg = (val) => val && val.trim().length > 1 && !/^(\.\.\.|cityname|query|\.\*\?)$/i.test(val.trim());
 
-      if (weatherMatch && isValidArg(weatherMatch[1])) {
+      // PARSE AND DISPATCH PLUGINS
+      const weatherMatch = activePlugins.includes('weather_live') && trimmedRaw.match(/^\[\[WEATHER:([^\]\n]+)\]\]$/i);
+      const calcMatch = activePlugins.includes('calc_runner') && trimmedRaw.match(/^\[\[CALC:([^\]\n]+)\]\]$/i);
+
+      if (weatherMatch) {
         const city = weatherMatch[1].trim();
         setStreamingText('');
         setThinkingStatus(`🌐 Visiting open-meteo.com (${city})...`);
         const liveData = await fetchLiveWeather(city);
         extraSources = [...extraSources, ...liveData.sources];
-        setThinkingStatus(`✧ Synthesizing forecast...`);
+        toolPills.push({ name: 'Live Weather', status: 'completed', result: liveData.text });
         result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM LIVE DATA - DO NOT OUTPUT TAGS]\n${liveData.text}\nAnswer naturally!` }], false);
-      } else if (searchMatch && isValidArg(searchMatch[1])) {
-        const q = searchMatch[1].trim();
+      } else if (calcMatch) {
+        const expr = calcMatch[1].trim();
         setStreamingText('');
-        setThinkingStatus(`🌐 Visiting en.wikipedia.org (${q})...`);
-        const wikiData = await fetchWikiSearch(q);
-        extraSources = [...extraSources, ...wikiData.sources];
-        setThinkingStatus(`✧ Reading Wikipedia pages...`);
-        result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM SEARCH DATA - DO NOT OUTPUT TAGS]\n${wikiData.text}\nAnswer naturally!` }], false);
+        setThinkingStatus(`🧮 Executing calculation...`);
+        const runRes = executeSafeCalc(expr);
+        const outStr = runRes.success ? `Result: ${runRes.result}` : `Error: ${runRes.error}`;
+        toolPills.push({ name: 'Math Runner', status: runRes.success ? 'completed' : 'failed', result: `${expr} => ${outStr}` });
+        result = await attemptFetch([...chatHistory, { role: 'assistant', content: result.raw }, { role: 'user', content: `[SYSTEM CALC RESULT - DO NOT OUTPUT TAGS]\n${outStr}\nPresent this clearly to the user!` }], false);
       }
 
       const cleaned = cleanLinksAndExtractSources(result.raw, result.annotations, extraSources);
       const replyContent = cleaned.text || (cleaned.sources.length > 0 ? 'Here are the sources I found:' : '⚠️ Model returned an empty response. Try tapping ✎ Edit or switch models.');
-      const finalHistory = [...chatHistory, { role: 'assistant', content: replyContent, sources: cleaned.sources, asFile: userAskedForFile }];
+      
+      const finalHistory = [
+        ...chatHistory, 
+        { 
+          role: 'assistant', 
+          content: replyContent, 
+          sources: cleaned.sources, 
+          asFile: userAskedForFile,
+          toolCalls: toolPills 
+        }
+      ];
       setStreamingText('');
       setMessages(finalHistory);
       saveSessionToHistory(currentId, finalHistory);
@@ -970,9 +1135,9 @@ export default function App() {
 
           <View style={styles.badgeRow}>
             <Text style={styles.sectionLabel}>GOOGLE GEMINI API KEY</Text>
-            <View style={styles.freeDayBadge}><Text style={styles.freeDayBadgeText}>FREE (UP TO 500/DAY)</Text></View>
+            <View style={styles.freeDayBadge}><Text style={styles.freeDayBadgeText}>FREE (GEMINI 4 HYDROGEN)</Text></View>
           </View>
-          <Text style={styles.helperText}>Paste your Google AI Studio key (starts with AQ. or AIza). Flash-Lite gives up to 500 free messages/day!</Text>
+          <Text style={styles.helperText}>Paste your Google AI Studio key (starts with AQ. or AIza). Unlocks Gemini 4 Hydrogen & Flash models directly from Google!</Text>
           <TextInput style={styles.keyInput} value={geminiKey} onChangeText={handleGeminiKeyChange} placeholder="AQ... or AIza..." placeholderTextColor="#666" autoCapitalize="none" autoCorrect={false} />
           <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://aistudio.google.com/apikey')}>
             <Text style={[styles.linkButtonText, { color: '#4ADE80' }]}>Get Free Google Gemini Key ↗</Text>
@@ -1035,6 +1200,47 @@ export default function App() {
         </View>
       </View>
 
+      {/* PLUGINS & TOOLS MANAGEMENT MODAL */}
+      <Modal visible={showPluginsModal} transparent animationType="fade" onRequestClose={() => setShowPluginsModal(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.noticeCard}>
+            <View style={styles.pluginModalHeader}>
+              <Text style={styles.noticeHeader}>⚡ Workspace Plugins</Text>
+              <TouchableOpacity onPress={() => setShowPluginsModal(false)}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity>
+            </View>
+            <Text style={styles.helperText}>Enable or disable tools active in your current chat workspace:</Text>
+
+            <View style={{ gap: 10, marginVertical: 14 }}>
+              {PLUGIN_REGISTRY.map((plugin) => {
+                const isEnabled = activePlugins.includes(plugin.id);
+                return (
+                  <TouchableOpacity 
+                    key={plugin.id} 
+                    style={[styles.pluginRow, isEnabled && styles.pluginRowActive]}
+                    onPress={() => togglePlugin(plugin.id)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.pluginIcon}>{plugin.icon}</Text>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={[styles.pluginName, isEnabled && { color: '#FFF' }]}>{plugin.name}</Text>
+                      <Text style={styles.pluginDesc} numberOfLines={2}>{plugin.desc}</Text>
+                    </View>
+                    <View style={[styles.pluginSwitch, isEnabled && styles.pluginSwitchActive]}>
+                      <Text style={styles.pluginSwitchTxt}>{isEnabled ? 'ON' : 'OFF'}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity style={styles.noticeBtnPrimary} onPress={() => setShowPluginsModal(false)}>
+              <Text style={styles.noticeBtnPrimaryText}>Save & Apply</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ABOUT / PRIVACY INFO MODAL */}
       <Modal visible={showInfoModal} transparent animationType="fade" onRequestClose={() => setShowInfoModal(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.noticeCard}>
@@ -1043,8 +1249,8 @@ export default function App() {
             <Text style={styles.infoItemBody}>API keys and chat logs live strictly in your browser’s localStorage and connect directly to Google, Anthropic, or OpenRouter—zero middleman servers.</Text>
             <Text style={styles.infoItemTitle}>📄 Direct File Export & Live Preview</Text>
             <Text style={styles.infoItemBody}>Ask Tessarc to put code or data in a file to export `.html`, `.csv`, `.py`, `.lua`, `.js`, `.md`, or `.txt`. HTML files run live right inside the app.</Text>
-            <Text style={styles.infoItemTitle}>🌐 Live Link Reader & Vision</Text>
-            <Text style={styles.infoItemBody}>Paste any URL for Tessarc to visit and read live, attach photos or up to 70s videos, or toggle 🌐 for live web search.</Text>
+            <Text style={styles.infoItemTitle}>⚡ Extensible Plugins</Text>
+            <Text style={styles.infoItemBody}>Includes modular Live Web Reader, Code & Math Runner, Structured Table Generator, and Open-Meteo Weather.</Text>
             <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL(GITHUB_URL)}>
               <Text style={[styles.noticeBtnSecondaryText, { color: '#60A5FA' }]}>Inspect Source Code on GitHub ↗</Text>
             </TouchableOpacity>
@@ -1055,6 +1261,7 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* LIVE FILE PREVIEW & HTML RUNNER MODAL */}
       <Modal visible={Boolean(previewFile)} animationType="slide" onRequestClose={() => setPreviewFile(null)}>
         <SafeAreaView style={styles.previewModalRoot}>
           <View style={styles.previewModalHeader}>
@@ -1105,22 +1312,7 @@ export default function App() {
         </SafeAreaView>
       </Modal>
 
-      <Modal visible={showNoticeModal && !hasAnyKey && !dontShowAgain} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.noticeCard}>
-            <Text style={styles.noticeHeader}>🔑 Setup Required</Text>
-            <Text style={styles.noticeBody}>To chat with models, please add a free Google Gemini key or an OpenRouter key in Settings.</Text>
-            <TouchableOpacity style={styles.noticeBtnPrimary} onPress={() => { setShowNoticeModal(false); setCurrentScreen('settings'); }}><Text style={styles.noticeBtnPrimaryText}>Go to Settings ⚙</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.noticeBtnSecondary} onPress={() => Linking.openURL('https://aistudio.google.com/apikey')}><Text style={styles.noticeBtnSecondaryText}>Get Free Google Gemini Key ↗</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.checkboxContainer} onPress={toggleDontShowAgain}>
-              <View style={[styles.checkboxBox, dontShowAgain && styles.checkboxChecked]}>{dontShowAgain && <Text style={styles.checkboxCheck}>✓</Text>}</View>
-              <Text style={styles.checkboxLabel}>Don't show this again</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.noticeDismiss} onPress={() => setShowNoticeModal(false)}><Text style={styles.noticeDismissText}>Dismiss</Text></TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
+      {/* MODEL PICKER BOTTOM SHEET */}
       <Modal visible={showModels} transparent animationType="none" onRequestClose={closeModelSheet}>
         <Animated.View style={[styles.sheetBackdrop, { opacity: sheetFade }]}>
           <Pressable style={{ flex: 1 }} onPress={closeModelSheet} />
@@ -1133,7 +1325,7 @@ export default function App() {
               </View>
               <TouchableOpacity onPress={closeModelSheet} style={styles.sheetClosePill}><Text style={styles.dropdownCloseBtn}>✕</Text></TouchableOpacity>
             </View>
-            <TextInput style={styles.sheetSearchInput} value={modelSearch} onChangeText={setModelSearch} placeholder="Search all models (gemini, hydrogen, claude)..." placeholderTextColor="#777" autoCapitalize="none" />
+            <TextInput style={styles.sheetSearchInput} value={modelSearch} onChangeText={setModelSearch} placeholder="Search models (gemini, hydrogen, claude)..." placeholderTextColor="#777" autoCapitalize="none" />
             {!modelSearch.trim() && (
               <View style={styles.companyTabsWrap}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}>
@@ -1175,6 +1367,7 @@ export default function App() {
         </Animated.View>
       </Modal>
 
+      {/* DRAWER MENU */}
       <Modal visible={isModalVisible} transparent animationType="fade">
         <View style={styles.menuOverlay}>
           <Animated.View style={[styles.menuContent, { transform: [{ translateX: slideAnim }] }]}>
@@ -1190,13 +1383,15 @@ export default function App() {
             </ScrollView>
             <View style={styles.menuFooter}>
               <TouchableOpacity style={styles.settingsRow} onPress={() => { closeMenu(); setCurrentScreen('settings'); }}><Text style={styles.settingsRowText}>⚙ Settings</Text></TouchableOpacity>
-              <TouchableOpacity style={styles.settingsRow} onPress={() => { closeMenu(); setShowInfoModal(true); }}><Text style={styles.settingsRowText}>? Privacy & Formats</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.settingsRow} onPress={() => { closeMenu(); setShowPluginsModal(true); }}><Text style={styles.settingsRowText}>⚡ Plugins & Tools ({activePlugins.length})</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.settingsRow} onPress={() => { closeMenu(); setShowInfoModal(true); }}><Text style={styles.settingsRowText}>? Privacy & Tools</Text></TouchableOpacity>
             </View>
           </Animated.View>
           <Pressable style={styles.menuCloseArea} onPress={closeMenu} />
         </View>
       </Modal>
 
+      {/* MAIN CONVERSATION VIEWPORT */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView
           ref={scrollRef}
@@ -1212,7 +1407,14 @@ export default function App() {
           keyboardShouldPersistTaps="handled"
         >
           {messages.length === 0 && !isLoading ? (
-            <EmptyHero onSelectPrompt={handleSelectStarter} onOpenSettings={() => setCurrentScreen('settings')} onOpenInfo={() => setShowInfoModal(true)} hasKey={hasAnyKey} demoCredits={demoCredits} />
+            <EmptyHero 
+              onSelectPrompt={handleSelectStarter} 
+              onOpenSettings={() => setCurrentScreen('settings')} 
+              onOpenInfo={() => setShowInfoModal(true)} 
+              hasKey={hasAnyKey} 
+              demoCredits={demoCredits} 
+              activePluginsCount={activePlugins.length}
+            />
           ) : (
             messages.map((item, index) => (
               <MessageItem
@@ -1223,6 +1425,7 @@ export default function App() {
                 showEditBtn={!isLoading}
                 onStartEdit={startEdit}
                 onOpenPreview={openFilePreview}
+                onConfirmTool={() => {}}
               />
             ))
           )}
@@ -1256,13 +1459,32 @@ export default function App() {
           </ScrollView>
         )}
 
+        {/* WORKSPACE ACTIONS & CONTROLS */}
         <View style={styles.inputOuter}>
           <View style={[styles.inputContainer, styles.desktopCenter]}>
             <TouchableOpacity style={styles.attachBtn} onPress={handlePickMedia}><Text style={styles.attachTxt}>📎</Text></TouchableOpacity>
+            
+            {/* TOGGLE WORKSPACE PLUGINS */}
+            <TouchableOpacity 
+              style={[styles.attachBtn, activePlugins.length > 0 && styles.pluginBtnActive]} 
+              onPress={() => setShowPluginsModal(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.attachTxt}>⚡</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity style={[styles.attachBtn, webSearchOn && styles.webBtnActive]} onPress={() => setWebSearchOn(!webSearchOn)}>
               <Text style={styles.attachTxt}>🌐</Text>
             </TouchableOpacity>
-            <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder={editingIndex !== null ? "Edit your message..." : (hasAnyKey ? "Ask Tessarc anything..." : `Demo Mode (${demoCredits} left) • Ask anything...`)} placeholderTextColor="#999" />
+
+            <TextInput 
+              style={styles.input} 
+              value={inputText} 
+              onChangeText={setInputText} 
+              placeholder={editingIndex !== null ? "Edit your message..." : (hasAnyKey ? "Ask Tessarc anything..." : `Demo Mode (${demoCredits} left) • Ask anything...`)} 
+              placeholderTextColor="#999" 
+            />
+            
             {isLoading ? (
               <TouchableOpacity style={[styles.sendBtn, { backgroundColor: '#EF4444' }]} onPress={stopGeneration}>
                 <Text style={[styles.sendTxt, { color: '#FFF', fontSize: 16 }]}>■</Text>
@@ -1331,8 +1553,7 @@ const styles = StyleSheet.create({
   activeHistoryItemText: { color: '#FFF', fontWeight: '600' },
   deleteBtn: { padding: 4 },
   deleteBtnText: { color: '#555', fontSize: 12 },
-  menuFooter: { borderTopWidth: 1, borderTopColor: '#222', paddingTop: 10, gap: 6 },
-  settingsRow: { paddingVertical: 6 },
+  menuFooter: { borderTopWidth: 1, borderTopColor: '#222', paddingTop: 10, gap: 4 },
   settingsRowText: { color: '#FFF', fontSize: 15 },
   settingsContent: { padding: 20 },
   privacyBanner: { backgroundColor: '#0E1713', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#1B3A2A', marginBottom: 20 },
@@ -1352,20 +1573,12 @@ const styles = StyleSheet.create({
   linkButtonText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
   contextInput: { backgroundColor: '#111', color: '#FFF', fontSize: 15, minHeight: 120, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#2C2C34', textAlignVertical: 'top' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 25 },
-  noticeCard: { backgroundColor: '#141416', width: '100%', maxWidth: 400, borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
-  noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 10 },
-  noticeBody: { color: '#AAA', fontSize: 14, lineHeight: 20, marginBottom: 18 },
-  noticeBtnPrimary: { backgroundColor: '#FFF', paddingVertical: 13, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
+  noticeCard: { backgroundColor: '#141416', width: '100%', maxWidth: 430, borderRadius: 20, padding: 22, borderWidth: 1, borderColor: '#252528' },
+  noticeHeader: { color: '#FFF', fontSize: 19, fontWeight: '800', marginBottom: 12 },
+  noticeBtnPrimary: { backgroundColor: '#FFF', paddingVertical: 13, borderRadius: 12, alignItems: 'center', marginTop: 10 },
   noticeBtnPrimaryText: { color: '#000', fontSize: 15, fontWeight: '700' },
-  noticeBtnSecondary: { backgroundColor: '#202024', paddingVertical: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 16 },
-  noticeBtnSecondaryText: { color: '#4A90E2', fontSize: 14, fontWeight: '700' },
-  checkboxContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  checkboxBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#555', marginRight: 10, justifyContent: 'center', alignItems: 'center' },
-  checkboxChecked: { backgroundColor: '#4A90E2', borderColor: '#4A90E2' },
-  checkboxCheck: { color: '#FFF', fontSize: 13, fontWeight: '800' },
-  checkboxLabel: { color: '#888', fontSize: 13 },
-  noticeDismiss: { alignItems: 'center', paddingVertical: 6 },
-  noticeDismissText: { color: '#666', fontSize: 13, fontWeight: '600' },
+  noticeBtnSecondary: { backgroundColor: '#202024', paddingVertical: 13, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 14 },
+  noticeBtnSecondaryText: { color: '#4ADE80', fontSize: 14, fontWeight: '700' },
   chatScrollContent: { padding: 20, paddingBottom: 30 },
   emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 20 },
   heroOrb: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#14141A', borderWidth: 1, borderColor: '#343440', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
@@ -1394,6 +1607,8 @@ const styles = StyleSheet.create({
   userMsgWrap: { alignSelf: 'flex-end', alignItems: 'flex-end', marginVertical: 8, maxWidth: '88%', width: '88%' },
   userMsg: { backgroundColor: '#1A1A1A', padding: 16, borderRadius: 24, borderBottomRightRadius: 4, borderWidth: 1, borderColor: '#222', maxWidth: '100%', overflow: 'hidden' },
   userMsgText: { color: '#FFF', fontSize: 15, lineHeight: 23, flexShrink: 1, ...(Platform.OS === 'web' ? { overflowWrap: 'anywhere', wordBreak: 'break-word' } : {}) },
+  expandBtn: { marginTop: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#2A2A32' },
+  expandBtnText: { color: '#7BB1F5', fontSize: 12, fontWeight: '700' },
   editingBubble: { borderColor: '#4A90E2', backgroundColor: '#162030' },
   editTrigger: { paddingTop: 5, paddingHorizontal: 6 },
   editTriggerText: { color: '#666', fontSize: 12, fontWeight: '600' },
@@ -1437,19 +1652,55 @@ const styles = StyleSheet.create({
   copyBtnText: { color: '#CCC', fontSize: 12, fontWeight: '600' },
   codeScroll: { padding: 14 },
   codeText: { color: '#E0E0E0', fontSize: 14, lineHeight: 22, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  mediaNoticeText: { color: '#F5A623', fontSize: '12px', paddingHorizontal: 20, paddingVertical: 6 },
+  mediaNoticeText: { color: '#F5A623', fontSize: 12, paddingHorizontal: 20, paddingVertical: 6 },
   previewBar: { maxHeight: 74, paddingHorizontal: 15, paddingVertical: 6, backgroundColor: '#080808', borderTopWidth: 1, borderTopColor: '#151515' },
   previewCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#161618', borderRadius: 12, padding: 6, marginRight: 10, borderWidth: 1, borderColor: '#252528' },
   previewThumb: { width: 44, height: 44, borderRadius: 8, marginRight: 8 },
   previewLabel: { color: '#CCC', fontSize: 12, fontWeight: '600', marginRight: 8 },
   removeAttBtn: { padding: 4 },
   removeAttText: { color: '#888', fontSize: 14, fontWeight: 'bold' },
+
+  // TOOL STATUS PILLS & BADGES
+  toolBadgeCard: { backgroundColor: '#101217', borderRadius: 12, padding: 10, marginVertical: 6, borderWidth: 1, borderColor: '#222838' },
+  toolBadgePending: { borderColor: '#EAB308', backgroundColor: '#1B170B' },
+  toolBadgeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  toolBadgeIcon: { fontSize: 13 },
+  toolBadgeTitle: { color: '#9CC2F7', fontSize: 12, fontWeight: '700' },
+  toolExpandBtn: { paddingHorizontal: 6, paddingVertical: 2 },
+  toolExpandTxt: { color: '#666', fontSize: 11, fontWeight: '600' },
+  confirmRow: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#342910' },
+  confirmPrompt: { color: '#EAB308', fontSize: 12, marginBottom: 6 },
+  confirmBtn: { backgroundColor: '#EAB308', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, alignSelf: 'flex-start' },
+  confirmBtnTxt: { color: '#000', fontSize: 11, fontWeight: '800' },
+  toolResultBody: { marginTop: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#1A202C' },
+  toolResultTxt: { color: '#AAA', fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+
+  // STRUCTURED DATA TABLE
+  tableCard: { backgroundColor: '#0D0E12', borderRadius: 14, borderWidth: 1, borderColor: '#252A36', marginVertical: 10, overflow: 'hidden' },
+  tableHeaderRow: { flexDirection: 'row', backgroundColor: '#161922', borderBottomWidth: 1, borderBottomColor: '#282F3E', paddingVertical: 8, paddingHorizontal: 6 },
+  tableHeaderCell: { color: '#9CC2F7', fontSize: 12, fontWeight: '800', width: 140, paddingHorizontal: 8 },
+  tableDataRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#181C26', paddingVertical: 8, paddingHorizontal: 6 },
+  tableDataRowAlt: { backgroundColor: '#090A0E' },
+  tableDataCell: { color: '#DDD', fontSize: 12, width: 140, paddingHorizontal: 8 },
+
+  // WORKSPACE PLUGINS MODAL
+  pluginModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  pluginRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#17171C', padding: 12, borderRadius: 14, borderWidth: 1, borderColor: '#262630' },
+  pluginRowActive: { borderColor: '#4A90E2', backgroundColor: '#131A26' },
+  pluginIcon: { fontSize: 20, marginRight: 10 },
+  pluginName: { color: '#CCC', fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  pluginDesc: { color: '#666', fontSize: 11 },
+  pluginSwitch: { backgroundColor: '#282830', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  pluginSwitchActive: { backgroundColor: '#4ADE80' },
+  pluginSwitchTxt: { color: '#000', fontSize: 10, fontWeight: '900' },
+
   inputOuter: { borderTopWidth: 1, borderTopColor: '#1C1C24', backgroundColor: '#000' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 15, paddingBottom: 20 },
-  attachBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#22222A', justifyContent: 'center', alignItems: 'center', marginRight: 6, borderWidth: 1, borderColor: '#3E3E4A' },
-  webBtnActive: { hindsight: 'none', backgroundColor: '#163052', borderColor: '#4A90E2' },
-  attachTxt: { fontSize: 17 },
-  input: { flex: 1, backgroundColor: '#1D1D24', color: '#FFF', paddingHorizontal: 18, paddingVertical: 13, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#3E3E4C' },
+  attachBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#22222A', justifyContent: 'center', alignItems: 'center', marginRight: 6, borderWidth: 1, borderColor: '#3E3E4A' },
+  pluginBtnActive: { backgroundColor: '#1A2333', borderColor: '#4A90E2' },
+  webBtnActive: { backgroundColor: '#163052', borderColor: '#4A90E2' },
+  attachTxt: { fontSize: 16 },
+  input: { flex: 1, backgroundColor: '#1D1D24', color: '#FFF', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 30, fontSize: 16, borderWidth: 1, borderColor: '#3E3E4C' },
   sendBtn: { marginLeft: 8, backgroundColor: '#FFF', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   sendBtnIdle: { backgroundColor: '#2A2A34', borderWidth: 1, borderColor: '#444452' },
   sendTxt: { fontSize: 22, fontWeight: 'bold' }
